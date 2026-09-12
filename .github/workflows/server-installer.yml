@@ -1,0 +1,42 @@
+name: server-installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version
+        required: true
+        default: 0.0.0
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build isolated runtime and package
+        env:
+          APP_IDENTITY: ${{ secrets.AVCTL_DEVELOPER_ID_APPLICATION }}
+          PKG_IDENTITY: ${{ secrets.AVCTL_DEVELOPER_ID_INSTALLER }}
+          AVCTL_VERSION: ${{ inputs.version }}
+        run: |
+          python -m venv .installer-venv
+          .installer-venv/bin/python -m pip install --upgrade pip
+          .installer-venv/bin/python -m pip install -r requirements.txt -r installer/requirements.txt
+          AVCTL_BUILD_PYTHON=.installer-venv/bin/python \
+          AVCTL_APPLICATION_SIGN_IDENTITY="${APP_IDENTITY:--}" \
+          AVCTL_INSTALLER_SIGN_IDENTITY="$PKG_IDENTITY" \
+          ./installer/build-pkg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avctl-server-${{ inputs.version }}
+          path: |
+            dist/Avctl-Server-${{ inputs.version }}.pkg
+            dist/Avctl-Server-${{ inputs.version }}.pkg.sha256
+          if-no-files-found: error

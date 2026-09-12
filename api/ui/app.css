@@ -1,0 +1,1387 @@
+/* avctl -- phone remote.
+ *
+ * Served from the mini itself: no CDN, no webfont, no framework. The mini is
+ * the router, so anything that needs the internet to render is a thing that
+ * breaks exactly when you most want to look at it.
+ *
+ * The Glass scheme (chosen 2026-08-09 over three candidates): the home
+ * widget's language, panel-wide. Neutral fills at label-opacity instead of
+ * gradient chrome, one system green spent only where state is good (the
+ * SCENE readout, the LED, the primary scene key), and semantic color rides
+ * as TEXT on quiet keys -- red is ink, never a painted slab. The McIntosh
+ * heritage survives as that one green: it is the only color the app owns.
+ * Glass remains the default and follows the device. Five explicit schemes
+ * share these semantic tokens, so changing appearance recolors the whole
+ * panel without teaching individual controls about themes.
+ */
+
+:root{
+  color-scheme: light dark;
+  /* Stronger than the built-ins: UI easings need punch, and every press,
+   * toast and tile in this app shares these two so the motion is one voice. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --page:#f2f2f7; --card:#ffffff; --card-2:#f8f8fa;
+  --fill:rgba(20,22,26,.06); --press:rgba(20,22,26,.13);
+  --edge:rgba(20,22,26,.09);
+  --ink:#1b1d22; --dim:#71767f; --faint:#a0a5ad;
+  --acc:#248a43; --acc-tint:rgba(52,199,89,.16);
+  --red:#d63a2e; --amber:#a8681c; --blue:#3163b5;
+  --shadow:rgba(20,28,38,.12);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --page:#000000; --card:#1c1c1e; --card-2:#252528;
+    --fill:rgba(255,255,255,.08); --press:rgba(255,255,255,.16);
+    --edge:rgba(255,255,255,.09);
+    --ink:#f2f3f5; --dim:#9aa0a8; --faint:#6e747c;
+    --acc:#30d158; --acc-tint:rgba(48,209,88,.18);
+    --red:#ff6b63; --amber:#f0a24a; --blue:#7fb0f0;
+    --shadow:rgba(0,0,0,.55);
+  }
+  /* The one color that IS the product, in the wide gamut the phone's OLED
+   * actually has -- the lit SCENE word and the accent tint glow for real. */
+  @supports (color: color(display-p3 0 1 0)){
+    :root{
+      --acc: color(display-p3 0.3 0.85 0.48);
+    }
+  }
+}
+
+/* Explicit palettes come after the system-dark block so their selection is
+ * authoritative. Glass intentionally has no override: it is the adaptive
+ * original above. */
+:root[data-theme='mcintosh']{
+  color-scheme:dark;
+  --page:#050706;--card:#101411;--card-2:#151b17;
+  --fill:rgba(104,240,153,.075);--press:rgba(104,240,153,.16);
+  --edge:rgba(104,240,153,.16);--ink:#ecf8ef;--dim:#88a08f;
+  --faint:#56705e;--acc:#5be88d;--acc-tint:rgba(53,218,108,.16);
+  --red:#ff7167;--amber:#e3b74f;--blue:#74aee8;--shadow:rgba(0,0,0,.7);
+}
+:root[data-theme='porcelain']{
+  color-scheme:light;
+  --page:#f4f0e8;--card:#fffcf5;--card-2:#eee8dd;
+  --fill:rgba(66,51,39,.075);--press:rgba(66,51,39,.14);
+  --edge:rgba(66,51,39,.12);--ink:#302922;--dim:#7d7063;
+  --faint:#aa9e90;--acc:#8e2f44;--acc-tint:rgba(142,47,68,.12);
+  --red:#b73535;--amber:#97611f;--blue:#3f668d;--shadow:rgba(76,57,38,.18);
+}
+:root[data-theme='midnight']{
+  color-scheme:dark;
+  --page:#07101d;--card:#0d1a2a;--card-2:#122239;
+  --fill:rgba(115,190,255,.085);--press:rgba(115,190,255,.18);
+  --edge:rgba(139,199,255,.14);--ink:#eff7ff;--dim:#91a8bf;
+  --faint:#58728d;--acc:#55c7ff;--acc-tint:rgba(62,185,244,.17);
+  --red:#ff7777;--amber:#f0ba62;--blue:#8ea9ff;--shadow:rgba(0,0,0,.65);
+}
+:root[data-theme='warm']{
+  color-scheme:dark;
+  --page:#17100d;--card:#241914;--card-2:#2e211b;
+  --fill:rgba(244,177,116,.085);--press:rgba(244,177,116,.17);
+  --edge:rgba(239,178,122,.14);--ink:#fff2e7;--dim:#bea28e;
+  --faint:#806556;--acc:#e5975a;--acc-tint:rgba(229,151,90,.17);
+  --red:#ff786d;--amber:#f1b658;--blue:#83a8d5;--shadow:rgba(0,0,0,.65);
+}
+:root[data-theme='contrast']{
+  color-scheme:dark;
+  --page:#000;--card:#000;--card-2:#111;--fill:#151515;--press:#292929;
+  --edge:#555;--ink:#fff;--dim:#d0d0d0;--faint:#969696;
+  --acc:#ffe600;--acc-tint:rgba(255,230,0,.18);
+  --red:#ff625a;--amber:#ffd54a;--blue:#60b8ff;--shadow:#000;
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;background:var(--page);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  -webkit-text-size-adjust:100%;
+  padding:0;overflow:hidden;   /* the rail owns all scrolling, not the page */
+}
+button{font:inherit;color:inherit}
+
+/* Fixed frame: screen on top, tabs at the bottom, panels swiping between
+ * them. Nothing may be wider than this box -- sideways scroll belongs to the
+ * rail alone, and anything else stealing it hides buttons off the edge. */
+.app{
+  width:100%;margin:0 auto;
+  height:100vh;height:100dvh;
+  background:var(--card);
+  /* Pan and pinch still work; only the delayed double-tap zoom gesture is
+   * removed. avctl owns double-tap for navigation and media gestures. */
+  touch-action:manipulation;
+  /* The native WKWebView and Safari/standalone both use viewport-fit=cover.
+   * The empty inset is deliberately part of the page: it clears the Dynamic
+   * Island while remaining tappable as top chrome. */
+  padding:max(10px, env(safe-area-inset-top)) 0 0;
+  display:flex;flex-direction:column;overflow:hidden;position:relative;
+}
+.brand,.screen,.tabs{flex:none}
+.brand,.screen{margin:0 14px}
+/* On a phone the plate IS the screen, edge to edge -- capping it narrower
+ * (it was 420px unconditionally) left the widest phones with a strip of
+ * page background either side: a bezel nobody drew on purpose. The framed
+ * hand-held look below is for windows wide enough to hold it. */
+@media (min-width:460px){
+  body{padding:14px 0}
+  .app{
+    max-width:420px;
+    height:calc(100vh - 28px);height:calc(100dvh - 28px);
+    border:1px solid var(--edge);border-radius:26px;
+    box-shadow:0 18px 40px -12px var(--shadow);
+  }
+}
+
+/* ---- the rail ---------------------------------------------------------- */
+/* Four panels side by side, one screen wide each, snapped. Swiping is the
+ * primary way between them; the tabs are for jumping and for saying where
+ * you are. */
+.rail-deck{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.rail-stack{
+  position:relative;flex:1;min-height:0;overflow:hidden;
+}
+.rail{
+  position:absolute;inset:0;display:flex;
+  overflow-x:auto;overflow-y:hidden;
+  scroll-snap-type:x mandatory;
+  overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  transition:transform 220ms var(--ease-out),opacity 160ms ease-out;
+}
+.rail::-webkit-scrollbar{display:none}
+
+/* ---- brand ------------------------------------------------------------- */
+.brand{
+  display:flex;align-items:center;gap:8px;padding:0 4px 10px;z-index:16;
+  font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+}
+.brand-spacer{margin-left:auto}
+.brand .who{margin-left:auto;letter-spacing:.04em;text-transform:none;
+  font-size:12px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;max-width:60%}
+.led{width:7px;height:7px;border-radius:50%;background:#3ecf7f;flex:none;
+  box-shadow:0 0 8px #3ecf7f;animation:pulse 2.6s ease-in-out infinite}
+.led.busy{animation:pulse .5s ease-in-out infinite}
+.led.bad{background:#e0603c;box-shadow:0 0 8px #e0603c;animation:none}
+@keyframes pulse{50%{opacity:.35}}
+.settings-toggle{position:relative}
+.settings-toggle .settings-back{display:none}
+.settings-open .settings-toggle .settings-gear{display:none}
+.settings-open .settings-toggle .settings-back{display:inline}
+
+/* ---- settings workspace ---------------------------------------------- */
+/* An alternate root mode overlays the controls below their persistent top
+ * chrome. It inherits every semantic theme token rather than carrying a
+ * separate native palette that can drift out of sync. */
+.settings-workspace{
+  position:absolute;z-index:14;left:0;right:0;bottom:0;
+  top:calc(max(10px, env(safe-area-inset-top)) + 31px);
+  display:grid;grid-template-rows:auto minmax(0,1fr);
+  background:var(--card);
+  border-top:1px solid var(--edge);
+  opacity:0;visibility:hidden;pointer-events:none;
+  transform:translate3d(12px,0,0) scale(.995);transform-origin:top right;
+  transition:opacity 180ms ease-out,transform 300ms var(--ease-out),
+             visibility 0s linear 300ms;
+}
+.settings-open .settings-workspace{
+  opacity:1;visibility:visible;pointer-events:auto;transform:none;
+  transition:opacity 180ms ease-out,transform 300ms var(--ease-out),
+             visibility 0s;
+}
+.settings-nav{
+  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;
+  padding:10px 14px;background:var(--card);border-bottom:1px solid var(--edge);
+}
+.settings-nav button{
+  border:0;border-radius:11px;min-height:44px;padding:8px 10px;
+  background:transparent;color:var(--dim);font-size:10.5px;font-weight:650;
+  text-align:center;display:flex;flex-direction:column;justify-content:center;
+  align-items:center;gap:2px;
+}
+.settings-nav button span{font-size:16px;color:var(--faint)}
+.settings-nav button.on{background:var(--fill);color:var(--ink)}
+.settings-nav button.on span{color:var(--acc)}
+.settings-detail{min-height:0;overflow:hidden;background:var(--card)}
+.settings-page{
+  display:none;height:100%;overflow-y:auto;overscroll-behavior-y:contain;
+  padding:17px 14px calc(24px + env(safe-area-inset-bottom));
+}
+.settings-page.on{display:block}
+.settings-page>header{margin:0 2px 22px}
+.settings-page>header p{
+  margin:0 0 3px;color:var(--acc);font-size:10.5px;font-weight:750;
+  letter-spacing:.14em;text-transform:uppercase;
+}
+.settings-page>header h1{
+  margin:0;color:var(--ink);font-size:28px;line-height:1.08;
+  letter-spacing:-.025em;font-weight:760;
+}
+.settings-page>header span{
+  display:block;margin-top:8px;max-width:620px;color:var(--dim);
+  font-size:13px;line-height:1.45;
+}
+.setting-group{margin:0 0 24px}
+.setting-group h2{
+  margin:0 2px 9px;color:var(--dim);font-size:10.5px;font-weight:700;
+  letter-spacing:.12em;text-transform:uppercase;
+}
+.layout-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.setting-choice,.theme-choice,.provider-profile,
+.setting-primary,.setting-secondary{
+  border:1px solid transparent;background:var(--fill);color:var(--ink);
+  transition:transform 130ms var(--ease-out),background 160ms ease-out,
+             border-color 160ms ease-out;
+}
+.setting-choice:active,.theme-choice:active,.provider-profile:active,
+.setting-primary:active,.setting-secondary:active{transform:scale(.975)}
+.setting-choice{
+  min-height:112px;border-radius:14px;padding:11px;text-align:left;
+  display:flex;flex-direction:column;align-items:flex-start;
+}
+.setting-choice.on,.theme-choice.on,.provider-profile.on{
+  border-color:var(--acc);background:var(--acc-tint);
+}
+.setting-choice b{font-size:13px;margin-top:8px}
+.setting-choice small{display:block;color:var(--dim);font-size:10.5px;line-height:1.3}
+.layout-mark{
+  display:grid;width:100%;height:42px;padding:5px;gap:3px;
+  grid-template-columns:repeat(3,1fr);border-radius:8px;
+  background:var(--card-2);border:1px solid var(--edge);
+}
+.layout-mark i{display:block;border-radius:3px;background:var(--faint);opacity:.5}
+.layout-docked{grid-template-columns:2fr 1fr}
+.layout-docked i:first-child{grid-row:1/3}.layout-docked i:last-child{grid-column:1/3}
+.layout-stage{grid-template-columns:1.4fr 1fr}.layout-stage i:first-child{grid-row:1/3}
+.layout-cover-flow i:nth-child(2){transform:scale(1.12);background:var(--acc)}
+.layout-split-deck{grid-template-columns:1fr 1fr}.layout-split-deck i:last-child{grid-column:1/3}
+.theme-choices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.theme-choice{
+  min-height:70px;border-radius:14px;padding:9px;text-align:left;
+  display:flex;flex-direction:column;gap:7px;
+}
+.theme-choice>span{display:flex;height:24px;overflow:hidden;border-radius:7px}
+.theme-choice i{display:block;flex:1}
+.theme-choice b{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.theme-glass i:nth-child(1){background:#f2f2f7}.theme-glass i:nth-child(2){background:#fff}.theme-glass i:nth-child(3){background:#248a43}
+.theme-mcintosh i:nth-child(1){background:#050706}.theme-mcintosh i:nth-child(2){background:#101411}.theme-mcintosh i:nth-child(3){background:#5be88d}
+.theme-porcelain i:nth-child(1){background:#f4f0e8}.theme-porcelain i:nth-child(2){background:#fffcf5}.theme-porcelain i:nth-child(3){background:#8e2f44}
+.theme-midnight i:nth-child(1){background:#07101d}.theme-midnight i:nth-child(2){background:#0d1a2a}.theme-midnight i:nth-child(3){background:#55c7ff}
+.theme-warm i:nth-child(1){background:#17100d}.theme-warm i:nth-child(2){background:#241914}.theme-warm i:nth-child(3){background:#e5975a}
+.theme-contrast i:nth-child(1){background:#000}.theme-contrast i:nth-child(2){background:#222}.theme-contrast i:nth-child(3){background:#ffe600}
+.setting-title-row{display:flex;align-items:baseline;gap:10px;margin-bottom:9px}
+.setting-title-row h2{margin-bottom:0}
+.provider-state{margin-left:auto;color:var(--dim);font-size:11px;text-align:right}
+.provider-profiles{display:flex;flex-direction:column;gap:7px}
+.provider-profile{
+  width:100%;min-height:72px;border-radius:14px;padding:11px;
+  display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;
+  align-items:center;text-align:left;
+}
+.provider-radio{
+  width:16px;height:16px;border:1.5px solid var(--faint);border-radius:50%;
+  box-shadow:inset 0 0 0 4px var(--card);
+}
+.provider-profile.on .provider-radio{background:var(--acc);border-color:var(--acc)}
+.provider-copy{min-width:0;display:flex;flex-direction:column}
+.provider-copy b{font-size:14px}
+.provider-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);font-size:11px}
+.provider-copy .provider-facts{color:var(--faint);font-size:10px;margin-top:2px}
+.provider-current{color:var(--acc);font-size:10.5px;font-weight:700}
+.provider-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.setting-primary,.setting-secondary{
+  min-height:44px;border-radius:12px;padding:9px 14px;font-weight:700;
+}
+.setting-primary{background:var(--acc);color:var(--card)}
+.setting-secondary{color:var(--ink)}
+.setting-primary:disabled,.setting-secondary:disabled{opacity:.4}
+.setting-note{margin:10px 2px 0;color:var(--faint);font-size:10.5px;line-height:1.45}
+.panel-settings{max-width:680px}
+.music-backend-settings{max-width:680px}
+.panel-setting-list{
+  overflow:hidden;border:1px solid var(--edge);border-radius:15px;
+  background:var(--fill);
+}
+.panel-setting-row{
+  min-height:68px;padding:9px 10px;display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;
+  border-bottom:1px solid var(--edge);
+  transition:opacity 160ms ease-out,background 160ms ease-out;
+}
+.panel-setting-row:last-child{border-bottom:0}
+.panel-setting-row.panel-disabled{opacity:.58}
+.panel-setting-identity{min-width:0;display:flex;align-items:center;gap:10px}
+.panel-setting-glyph{
+  width:38px;height:38px;flex:none;border-radius:11px;background:var(--card-2);
+  color:var(--acc);display:grid;place-items:center;font-size:19px;
+}
+.panel-setting-copy{min-width:0;display:flex;flex-direction:column}
+.panel-setting-copy b{
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;
+}
+.panel-setting-copy small{color:var(--dim);font-size:10.5px;margin-top:2px}
+.panel-setting-toggle{position:relative;display:block;width:44px;height:28px}
+.panel-setting-toggle input{position:absolute;opacity:0;pointer-events:none}
+.panel-setting-toggle span{
+  position:absolute;inset:0;border-radius:999px;background:var(--faint);
+  transition:background 160ms ease-out;
+}
+.panel-setting-toggle span::after{
+  content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;
+  border-radius:50%;background:var(--card);box-shadow:0 1px 3px #0003;
+  transition:transform 220ms var(--ease-out);
+}
+.panel-setting-toggle input:checked+span{background:var(--acc)}
+.panel-setting-toggle input:checked+span::after{transform:translateX(16px)}
+.panel-setting-toggle input:focus-visible+span{outline:2px solid var(--acc);outline-offset:2px}
+.panel-setting-toggle input:disabled+span{opacity:.65}
+.panel-setting-moves{display:grid;grid-template-columns:repeat(2,38px);gap:4px}
+.panel-setting-moves button{
+  width:38px;height:38px;border:0;border-radius:10px;background:var(--card-2);
+  color:var(--ink);font-size:17px;font-weight:700;
+}
+.panel-setting-moves button:active{transform:scale(.94)}
+.panel-setting-moves button:disabled{opacity:.24}
+.native-settings,.artwork-settings{max-width:680px}
+.setting-field{
+  display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;
+  gap:10px;min-height:52px;padding:7px 11px;background:var(--fill);
+  border-bottom:1px solid var(--edge);
+}
+.setting-field:first-of-type{border-radius:14px 14px 0 0}
+.setting-field:nth-of-type(2){border-radius:0 0 14px 14px;border-bottom:0}
+.setting-field>span{color:var(--dim);font-size:12px;font-weight:650}
+.setting-field input{
+  min-width:0;width:100%;border:0;outline:0;background:transparent;
+  color:var(--ink);font:13px/1.3 -apple-system,sans-serif;text-align:right;
+}
+.setting-field input::placeholder{color:var(--faint)}
+.connection-actions{max-width:none}
+.setting-readout{
+  min-height:54px;padding:9px 12px;border-radius:14px;background:var(--fill);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  color:var(--dim);font-size:12px;
+}
+.setting-readout b{color:var(--ink);font-size:20px;font-variant-numeric:tabular-nums}
+
+/* Guided setup is temporary workspace content, never another control tab. */
+.setup-root{max-width:760px}
+.setup-progress{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px;
+  margin:0 0 18px}
+.setup-progress span{height:4px;border-radius:999px;background:var(--edge)}
+.setup-progress span.on{background:var(--acc)}
+.setup-card{display:none;padding:16px;border:1px solid var(--edge);
+  border-radius:17px;background:var(--fill)}
+.setup-card.on{display:block}
+.setup-card h2{margin:0;color:var(--ink);font-size:21px;letter-spacing:-.015em;
+  text-transform:none}
+.setup-card>p{margin:6px 0 15px;color:var(--dim);font-size:14px;line-height:1.45}
+.setup-section-title{margin:20px 0 9px;color:var(--ink);font-size:15px;
+  letter-spacing:.01em}
+.setup-options{display:flex;flex-direction:column;gap:7px}
+.setup-option{width:100%;min-height:64px;padding:11px;border:1px solid transparent;
+  border-radius:14px;background:var(--card-2);color:var(--ink);text-align:left;
+  display:flex;align-items:center;gap:11px}
+.setup-option.on{border-color:var(--acc);background:var(--acc-tint)}
+.setup-option-mark{width:18px;height:18px;flex:none;border:1.5px solid var(--faint);
+  border-radius:50%;box-shadow:inset 0 0 0 4px var(--card-2)}
+.setup-option.on .setup-option-mark{border-color:var(--acc);background:var(--acc)}
+.setup-option-copy{min-width:0;display:flex;flex-direction:column}
+.setup-option-copy b{font-size:16px}.setup-option-copy small{margin-top:2px;
+  color:var(--dim);font-size:13px;line-height:1.35}
+.setup-fields{overflow:hidden;margin-top:12px;border:1px solid var(--edge);
+  border-radius:14px}
+.setup-fields .setting-field{border-radius:0;border-bottom:1px solid var(--edge)}
+.setup-fields .setting-field:last-child{border-bottom:0}
+.setup-panel-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.setup-panel{min-height:58px;padding:10px;border:1px solid transparent;
+  border-radius:13px;background:var(--card-2);color:var(--ink);text-align:left;
+  display:flex;align-items:center;justify-content:space-between;gap:8px}
+.setup-panel.on{border-color:var(--acc);background:var(--acc-tint)}
+.setup-panel b{font-size:15px}.setup-panel small{color:var(--dim);font-size:12px}
+.setup-panel-state{color:var(--acc);font-size:18px;font-weight:750}
+.setup-discovery{margin-top:12px;padding:11px;border-radius:13px;background:var(--card-2);
+  color:var(--dim);font-size:13.5px;line-height:1.45;white-space:pre-line}
+.setup-summary{display:grid;gap:7px}.setup-summary-row{padding:11px 12px;
+  border-radius:12px;background:var(--card-2);display:flex;justify-content:space-between;
+  gap:14px;color:var(--dim);font-size:13.5px}.setup-summary-row b{color:var(--ink)}
+.setup-summary-row b.setup-unavailable{color:var(--dim);font-weight:600}
+.setup-phone-address{margin-top:10px;padding:11px 12px;border-radius:12px;
+  background:var(--acc-tint);color:var(--ink);font-weight:650;overflow-wrap:anywhere}
+.setup-actions{display:flex;justify-content:space-between;gap:8px;margin-top:16px}
+.setup-actions .right{display:flex;gap:8px;margin-left:auto}
+.setup-loading{padding:18px;border-radius:14px;background:var(--fill);color:var(--dim)}
+.setup-error{color:#d84a3b}.setup-success{color:var(--acc);font-weight:700}
+@media (max-width:390px){
+  .setup-panel-list{grid-template-columns:1fr}
+}
+
+@media (max-width:699px){
+  .settings-nav{display:flex;gap:4px;padding-inline:8px;overflow-x:auto;
+    scrollbar-width:none}
+  .settings-nav::-webkit-scrollbar{display:none}
+  .settings-nav button{flex:0 0 82px;padding-inline:7px;font-size:10.5px}
+}
+
+/* ---- the screen -------------------------------------------------------- */
+/* Sticky, because it is the only thing on the page that is always relevant:
+ * scrolling down to the trim controls should not cost you the volume. */
+/* No longer a green LCD panel: a quiet card, mono digits in ink, and the
+ * SCENE value is the one lit word -- the widget's status strip, exactly. */
+.screen{
+  background:var(--fill);border-radius:14px;
+  padding:12px 14px 10px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.screen-head{
+  display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+  font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--faint);
+  border-bottom:1px solid var(--edge);padding-bottom:7px;
+}
+#scene{color:var(--acc);letter-spacing:.06em;font-weight:700;font-size:14px}
+/* The widget's status strip, brought home: four label-over-value cells in
+ * one row, instead of the old 2x2 ledger lines. */
+.readouts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+  padding:11px 0 6px}
+.ro{display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:17px;color:var(--ink);min-width:0}
+.ro b{font-weight:800;font-size:10.5px;letter-spacing:.1em;color:var(--faint)}
+.ro span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-variant-numeric:tabular-nums;font-weight:600}
+/* Anything we are guessing rather than reading gets a ~ and goes dim. The
+ * D900 is permanently in this state. */
+.ro span.guess{color:var(--dim)}
+.ticker{font-size:12px;color:var(--dim);
+  border-top:1px solid var(--edge);padding-top:5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---- pages ------------------------------------------------------------- */
+.page{
+  flex:0 0 100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;
+  overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;
+  padding:12px 14px 10px;
+}
+.panel{margin-bottom:16px}
+.panel h2{
+  font:600 10.5px/1 -apple-system,sans-serif;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--dim);margin:0 0 7px;padding:0 2px;
+  display:flex;align-items:baseline;gap:6px;
+}
+.panel h2 small{font-weight:400;letter-spacing:.02em;text-transform:none;
+  font-size:10.5px;color:var(--faint);margin-left:auto}
+
+/* ---- keys -------------------------------------------------------------- */
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}
+.grid.c3{grid-template-columns:repeat(3,1fr)}
+.grid.c4{grid-template-columns:repeat(4,1fr)}
+/* The widget's construction: a flat fill at label-opacity, no border, no
+ * bevel. Pressing deepens the fill -- ink pressed into paper, not a lamp
+ * dimming. */
+.key{
+  position:relative;border:0;border-radius:12px;
+  background:var(--fill);
+  padding:9px 8px;min-height:44px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:2px;font-size:14px;font-weight:600;letter-spacing:.01em;
+  transition:transform 140ms var(--ease-out),
+             background-color 140ms var(--ease-out);
+}
+.key:active{transform:scale(.97);background:var(--press)}
+.key .g{font-size:18px;line-height:1;font-weight:400}
+.key small{font-size:10.5px;font-weight:400;color:var(--dim);letter-spacing:0}
+/* width too, not just the grid span: several of these sit on their own rather
+ * than in a grid, and a bare flex button shrinks to its text. */
+.key.wide{grid-column:1/-1;width:100%}
+/* Half a row: two of these fill a c4 grid, and a third leaves room for two
+   quarter-width keys beside it. */
+.key.half{grid-column:span 2}
+.key.tall{min-height:54px}
+/* Semantic color is INK on a quiet key now, never a painted slab -- the
+ * accent alone earns a tinted fill, because "start the music" is the one
+ * verb the whole remote exists for. */
+.key.accent{color:var(--acc);background:var(--acc-tint)}
+.key.accent small{color:inherit;opacity:.75}
+.key.warm{color:var(--amber)}
+.key.warm small{color:inherit;opacity:.75}
+/* Off keys are red on every panel: in a dark room, "the red one turns it
+   off" should be true without reading a label. Red text carries that as
+   well as a red slab did, at a tenth of the shouting. */
+.key.off{color:var(--red)}
+.key.off small{color:inherit;opacity:.75}
+.key.cool{color:var(--blue)}
+.key.cool small{color:inherit;opacity:.75}
+/* Selected = what we believe the device is set to. Hollow ring rather than a
+ * fill, so it never looks like the button is mid-press. */
+.key.sel{box-shadow:0 0 0 2px var(--acc) inset}
+.key.sel::before{content:"";position:absolute;top:6px;right:7px;width:5px;
+  height:5px;border-radius:50%;background:var(--acc)}
+
+/* The coming-soon mark. Drawn from the command table's handler list, so it
+ * disappears on its own the day the handler lands -- there is no second place
+ * to remember to update. */
+.key.soon{opacity:.62}
+.key.soon::after{
+  content:"";position:absolute;top:6px;left:7px;width:4px;height:4px;
+  border-radius:50%;background:var(--faint);
+}
+.key.soon.sel{opacity:.72}
+
+/* ---- d-pad ------------------------------------------------------------- */
+.dpad{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+  /* Bottom margin because a .grid (Back/Home) follows immediately and has
+     no top margin of its own -- without this the down arrow touches it. */
+  max-width:250px;margin:0 auto 10px;
+}
+/* aspect-ratio, not a fixed height: the columns are fractional, so any
+   hardcoded height renders the cells -- and the round OK in the middle --
+   as ovals on some widths (seen on iPhone 15 Pro Max at 250px: 79x54). */
+.dpad .key{aspect-ratio:1;min-height:54px;border-radius:16px}
+.dpad .key.ok{border-radius:50%;font-size:13px;letter-spacing:.08em}
+.dpad .corner{visibility:hidden}
+
+/* ---- dial (volume, and the D900 cycle) --------------------------------- */
+.dialrow{display:flex;align-items:center;gap:12px;justify-content:center}
+.dial{
+  width:118px;height:118px;flex:none;border-radius:50%;border:0;
+  background:var(--acc-tint);
+  color:var(--acc);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:1px;position:relative;
+  transition:transform 160ms var(--ease-out);
+}
+.dial:active{transform:scale(.96)}
+.dial .v{font:700 31px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-variant-numeric:tabular-nums}
+.dial .u{font-size:12px;opacity:.7;letter-spacing:.1em;text-transform:uppercase}
+/* The DAC dial shows words up to BLUETOOTH, not a two-digit number -- at the
+   default 30px mono that is wider than the dial itself. */
+.dial .v-word{font-size:18px;letter-spacing:.02em}
+.dial.soon{opacity:.66}
+.stack{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+.stack .key{min-height:44px}
+
+/* ---- volume slider ------------------------------------------------------ */
+.slider{width:100%;margin:12px 0 2px;-webkit-appearance:none;appearance:none;
+  background:none;height:26px}
+.slider::-webkit-slider-runnable-track{height:6px;border-radius:3px;
+  background:var(--acc);opacity:.4}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;
+  margin-top:-9px;border-radius:50%;background:var(--card);
+  border:1px solid var(--edge);box-shadow:0 2px 6px -2px var(--shadow)}
+.slider::-moz-range-track{height:6px;border-radius:3px;background:var(--acc);
+  opacity:.4}
+.slider::-moz-range-thumb{width:22px;height:22px;border-radius:50%;
+  background:var(--card);border:1px solid var(--edge)}
+.scale{display:flex;justify-content:space-between;font-size:10.5px;
+  color:var(--faint);font-variant-numeric:tabular-nums;padding:0 2px}
+
+/* ---- disclosure -------------------------------------------------------- */
+/* Everything that is real but rarely touched -- nine amp inputs, trim, the
+ * player's track menus -- folds away behind one of these. The commands still
+ * exist; they are just not in the way of the four things this rack is
+ * actually switched between. */
+details.more{border-top:1px solid var(--edge);margin-top:4px}
+details.more>summary{
+  list-style:none;cursor:pointer;display:flex;align-items:center;gap:6px;
+  font:600 10.5px/1 -apple-system,sans-serif;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--dim);padding:11px 2px;
+}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::after{content:"+";margin-left:auto;font-size:16px;line-height:1}
+details.more[open]>summary::after{content:"\2212"}
+details.more[open]>summary{color:var(--ink)}
+
+/* A slim secondary action -- resync, and anything else that is a correction
+ * rather than a control. */
+.link{
+  width:100%;border:0;background:none;color:var(--dim);
+  font-size:13px;padding:9px 4px;display:flex;justify-content:center;gap:6px;
+  align-items:baseline;
+}
+.link:active{opacity:.5}
+.link small{font-size:12px;color:var(--faint)}
+
+.iconbtn{
+  flex:none;width:28px;height:28px;padding:0;border-radius:9px;
+  border:0;background:var(--fill);color:var(--dim);
+  display:flex;align-items:center;justify-content:center;font-size:15px;
+}
+.iconbtn:active{opacity:.5}
+
+/* ---- notes ------------------------------------------------------------- */
+.note{font-size:12px;line-height:1.45;color:var(--faint);padding:2px 2px 0}
+.note b{color:var(--dim);font-weight:600}
+
+/* ---- tabs -------------------------------------------------------------- */
+/* Also the position indicator for the rail: which one is lit says which panel
+ * you swiped to. */
+.tabs{
+  display:grid;grid-template-columns:repeat(var(--tabs,4),1fr);
+  gap:4px;padding:7px 10px calc(7px + env(safe-area-inset-bottom));
+  background:var(--card);
+  border-top:1px solid var(--edge);
+}
+.tab{
+  border:0;background:none;border-radius:12px;padding:6px 2px 5px;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
+  text-decoration:none;
+}
+.tab .g{font-size:18px;line-height:1;opacity:.8}
+.tab.on{color:var(--ink);background:var(--fill)}
+.tab.on .g{opacity:1}
+
+/* ---- agent ------------------------------------------------------------ */
+.agent-shell{height:100%;min-height:280px;display:flex;flex-direction:column;
+  gap:10px}
+.agent-head{display:flex;align-items:center;justify-content:space-between;
+  min-height:30px;color:var(--dim);font-size:12px;font-weight:650;
+  letter-spacing:.14em;text-transform:uppercase;padding:0 2px}
+.agent-usage{font:650 14px/1 -apple-system,sans-serif;letter-spacing:0;
+  text-transform:none;color:var(--dim);white-space:nowrap;margin-left:4px}
+.agent-new{border:0;background:none;color:var(--dim);font:650 14px/1 -apple-system,
+  sans-serif;letter-spacing:0;text-transform:none;padding:8px;margin:-8px}
+.agent-log{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
+  gap:12px;padding:4px 2px 10px;overscroll-behavior-y:contain}
+.agent-empty{margin:auto 0;display:flex;flex-direction:column;gap:7px;
+  text-align:center;color:var(--dim);padding:16px 4px}
+.agent-empty b{font-size:16px;color:var(--ink);margin-bottom:5px}
+.agent-empty button{border:1px solid var(--edge);background:var(--fill);
+  color:var(--dim);border-radius:12px;padding:10px 12px;text-align:left}
+.agent-msg{max-width:min(92%,42rem);padding:13px 15px;border-radius:18px;
+  overflow-wrap:anywhere;font-size:clamp(16px,1rem + .15vw,18px);line-height:1.52;
+  letter-spacing:-.008em;-webkit-font-smoothing:antialiased}
+.agent-copy{min-width:0}
+.agent-copy p{margin:0}
+.agent-copy p+p{margin-top:.72em}
+.agent-msg.user{align-self:flex-end;background:var(--acc-tint);color:var(--ink);
+  max-width:min(86%,36rem);border-bottom-right-radius:6px}
+.agent-msg.agent{align-self:flex-start;background:var(--fill);
+  border-bottom-left-radius:6px}
+.agent-msg.receipt{box-shadow:inset 2px 0 0 var(--acc)}
+.agent-msg.pending{color:var(--dim)}
+.agent-results{display:flex;flex-direction:column;gap:9px;margin-top:12px;
+  padding-top:11px;border-top:1px solid var(--edge)}
+.agent-result{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;
+  align-items:center}
+.agent-result>span{display:grid;place-items:center;width:28px;height:28px;
+  border-radius:9px;background:var(--card);color:var(--acc);
+  font:750 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
+.agent-result b,.agent-result small{display:block;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.agent-result b{font-size:15px;line-height:1.25;letter-spacing:-.01em}
+.agent-result small{font-size:13px;line-height:1.35;color:var(--dim);margin-top:2px}
+.agent-compose{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:7px;
+  align-items:end;background:var(--fill);border:1px solid var(--edge);
+  border-radius:16px;padding:6px}
+.agent-compose.voice-capable{grid-template-columns:40px minmax(0,1fr) 40px}
+.agent-compose textarea{resize:none;max-height:96px;min-height:32px;
+  border:0;outline:0;background:transparent;color:var(--ink);padding:6px 7px;
+  /* iOS zooms the whole viewport when a focused text control is below 16px. */
+  font:16px/1.35 -apple-system,sans-serif}
+.agent-compose button{width:40px;height:40px;border:0;border-radius:12px;
+  background:var(--acc);color:#111;font-size:20px;font-weight:800}
+.agent-compose button:disabled{opacity:.35}
+.agent-compose .agent-mode{background:transparent;color:var(--dim);padding:9px}
+.agent-mode svg{width:22px;height:22px;fill:none;stroke:currentColor;
+  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.agent-mode-keyboard{display:none}
+.agent-compose.voice-mode .agent-mode-mic{display:none}
+.agent-compose.voice-mode .agent-mode-keyboard{display:block}
+.agent-compose .agent-hold{grid-column:2/4;width:auto;background:var(--card);
+  color:var(--ink);border:1px solid var(--edge);font:650 15px/1 -apple-system,
+  sans-serif;letter-spacing:.01em;touch-action:none;user-select:none;
+  -webkit-user-select:none;-webkit-touch-callout:none;transition:transform 100ms ease-out,
+  background-color 100ms ease-out,color 100ms ease-out}
+.agent-compose.voice-recording .agent-hold{background:var(--acc-tint);
+  color:var(--acc);border-color:var(--acc);transform:scale(.985)}
+.agent-compose.voice-cancelling .agent-hold{background:var(--red);color:#fff;
+  border-color:var(--red)}
+.agent-compose.voice-processing .agent-hold{color:var(--dim)}
+
+@media (prefers-reduced-motion:reduce){
+  .agent-compose .agent-hold,.mini-trackpad,.mini-trackpad::before,
+  .mini-keydeck button{transition:none}
+}
+
+/* On a handheld, Ask deliberately gives the transport's space to the
+ * conversation while composing. Mini is different: its trackpad must stay in
+ * exactly the same place when the system keyboard overlays the lower screen. */
+@media (max-width:739px){
+  .app.agent-composing .mbar{display:none}
+}
+
+/* ---- Mac mini input ---------------------------------------------------- */
+/* This is a trackpad, not a scroll view. Pointer Events own this rectangle;
+ * the surrounding rail still owns horizontal panel navigation everywhere
+ * else. Immediate pressed feedback keeps the surface feeling connected even
+ * before a remote cursor can visibly answer. */
+#page-mini{overflow:hidden}
+.mini-shell{height:100%;min-height:280px;display:flex;flex-direction:column;gap:9px}
+.mini-head{display:flex;align-items:center;justify-content:space-between;
+  min-height:28px;padding:0 2px;color:var(--dim);font-size:11px;font-weight:700;
+  letter-spacing:.13em;text-transform:uppercase}
+.mini-state{display:flex;align-items:center;gap:6px;max-width:72%;min-width:0;
+  font-size:10.5px;font-weight:550;letter-spacing:0;text-transform:none;
+  color:var(--faint)}
+.mini-state span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mini-state i{width:7px;height:7px;flex:none;border-radius:50%;
+  background:var(--amber);box-shadow:0 0 7px var(--amber)}
+.mini-state.ready{color:var(--dim)}
+.mini-state.ready i{background:#3ecf7f;box-shadow:0 0 7px #3ecf7f}
+.mini-state.bad i{background:var(--red);box-shadow:0 0 7px var(--red)}
+.mini-trackpad{position:relative;isolation:isolate;flex:1;min-height:132px;
+  overflow:hidden;border:1px solid var(--edge);border-radius:20px;
+  background:linear-gradient(145deg,var(--fill),var(--card-2));
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:var(--dim);touch-action:none;overscroll-behavior:contain;
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+  transition:transform 100ms ease-out,border-color 140ms ease-out,
+             background-color 140ms ease-out}
+.mini-trackpad::before{content:"";position:absolute;inset:0;z-index:-1;
+  background:radial-gradient(circle at 50% 42%,var(--acc-tint),transparent 58%);
+  opacity:.22;transition:opacity 120ms ease-out}
+.mini-trackpad.active{transform:scale(.992);border-color:var(--acc)}
+.mini-trackpad.active::before{opacity:.72}
+.mini-trackpad.space-switch{border-color:var(--acc);transform:scale(.982)}
+.mini-trackpad.space-switch::before{opacity:1}
+.mini-trackpad:focus-visible{outline:2px solid var(--acc);outline-offset:-3px}
+.mini-trackpad-mark{width:38px;height:38px;border:1px solid var(--edge);
+  border-radius:50%;margin-bottom:10px;position:relative}
+.mini-trackpad-mark::before,.mini-trackpad-mark::after{content:"";
+  position:absolute;background:var(--faint);border-radius:2px}
+.mini-trackpad-mark::before{width:12px;height:1px;left:13px;top:18px}
+.mini-trackpad-mark::after{width:1px;height:12px;left:18px;top:13px}
+.mini-trackpad p{margin:0;font-size:13px;letter-spacing:.01em}
+.mini-trackpad p b{color:var(--ink);font-weight:700}
+.mini-trackpad small{margin-top:3px;color:var(--faint);font-size:10.5px}
+.mini-keydeck{flex:none;display:flex;flex-direction:column;gap:7px}
+.mini-modifiers,.mini-arrows{display:grid;gap:6px}
+.mini-modifiers{grid-template-columns:repeat(6,minmax(0,1fr))}
+.mini-arrows{grid-template-columns:repeat(4,minmax(0,1fr))}
+.mini-keydeck button{border:1px solid transparent;border-radius:11px;
+  min-height:40px;padding:6px;background:var(--fill);color:var(--dim);
+  font-size:13px;font-weight:650;transition:transform 90ms ease-out,
+  background-color 120ms ease-out,border-color 120ms ease-out}
+.mini-keydeck button:active{transform:scale(.96);background:var(--press)}
+.mini-keydeck [data-mini-mod]{font-size:18px}
+.mini-keydeck [data-mini-mod].on{color:var(--acc);background:var(--acc-tint);
+  border-color:var(--acc)}
+.mini-arrows button{font-size:18px}
+.mini-typebar{display:grid;grid-template-columns:minmax(0,1fr) 42px;gap:6px;
+  padding:5px;background:var(--fill);border:1px solid var(--edge);border-radius:14px}
+.mini-typebar textarea{resize:none;min-height:34px;max-height:54px;border:0;
+  outline:0;background:transparent;color:var(--ink);padding:7px 8px;
+  font:16px/1.25 -apple-system,BlinkMacSystemFont,sans-serif}
+.mini-typebar textarea::placeholder{color:var(--faint)}
+.mini-typebar #mini-keyboard-done{min-height:36px;background:var(--card);
+  color:var(--dim);font-size:19px}
+.mini-note{margin:0 2px;color:var(--faint);font-size:10px;line-height:1.35}
+
+@media (max-height:720px){
+  .mini-trackpad{min-height:104px}
+  .mini-trackpad-mark{display:none}
+  .mini-note{display:none}
+  .mini-keydeck button{min-height:36px}
+}
+
+/* ---- music ------------------------------------------------------------- */
+/* The one panel whose contents are data. Tiles and songs get no data-cmd --
+ * their taps are interpreted by the gesture code, not the global dispatcher --
+ * and long-press must not trigger iOS text selection or the callout menu. */
+/* iOS segmented control, properly: a recessed track holds the options, the
+ * chosen one rides on a raised card chip. Bare text next to a filled chip
+ * read as a label, not a button -- the track is what says "pick one". */
+.seg{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.seg-track{
+  flex:1;display:flex;gap:2px;min-width:0;
+  background:var(--fill);border-radius:11px;padding:3px;
+}
+.seg-btn{
+  flex:1;border:0;border-radius:8px;min-width:0;
+  background:none;color:var(--dim);padding:6px 4px;
+  font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:background-color 140ms var(--ease-out),color 140ms var(--ease-out);
+}
+.seg-btn.on{background:var(--card);color:var(--ink);
+  box-shadow:0 1px 4px -1px var(--shadow)}
+/* One compact Music rail. Entering Search replaces Albums / Songs /
+ * Playlists with Library / Apple Music in the same first slot; the trigger
+ * becomes a right-aligned Back, and Refresh leaves until browsing returns. */
+.m-nav{display:grid;grid-template-columns:minmax(0,1fr) 36px 36px;
+  align-items:stretch;gap:8px;margin-bottom:12px}
+.m-nav-head{display:contents}
+.m-nav-back-glyph{display:none!important}
+.m-nav-action{position:relative;width:36px;height:auto;min-height:38px;
+  border-radius:10px;
+  transition:transform 140ms var(--ease-out),background-color 140ms ease,
+    color 140ms ease}
+.m-nav-action:active{opacity:1;transform:scale(.96);background:var(--press)}
+/* A compact visible chip with a 44pt touch footprint. */
+.m-nav-action::after{content:"";position:absolute;inset:-4px}
+.m-nav-search-glyph{position:relative;display:block;width:13px;height:13px;border:1.7px solid
+  currentColor;border-radius:50%}
+.m-nav-search-glyph::after{content:"";position:absolute;width:6px;height:1.7px;
+  right:-5px;bottom:-2px;border-radius:2px;background:currentColor;
+  transform:rotate(45deg);transform-origin:left center}
+.m-nav-scopes,.m-search-scopes{grid-column:1;grid-row:1;min-width:0;margin:0}
+.m-search-scopes{display:none}
+.m-nav-view{grid-column:2;grid-row:1}
+.m-nav-refresh{grid-column:3;grid-row:1}
+.music-search .m-nav-scopes{display:none}
+.music-search .m-search-scopes{display:flex}
+.music-search .m-nav-view{grid-column:3}
+.music-search .m-nav-search-glyph{display:none}
+.music-search .m-nav-back-glyph{display:inline!important;font-size:18px}
+.music-search .m-nav-refresh{display:none}
+.music-album .m-nav{display:none}
+
+/* Four Music arrangements share one DOM and one state model. Only their
+ * composition changes; commands, queue and library gestures stay singular. */
+.m-stage,.m-coverflow{display:none}
+:root[data-music-layout='stage']
+  #page-music.music-overview.music-recent .m-stage{display:block}
+:root[data-music-layout='cover-flow']
+  #page-music.music-overview.music-recent .m-coverflow{display:block}
+:root[data-music-layout='cover-flow']
+  #page-music.music-overview.music-recent #m-recent{display:none}
+
+/* Stage: current music is the large first act; the regular library remains
+ * below it and every control is still a normal command key. */
+.m-stage{
+  padding:13px;margin:0 0 15px;border-radius:18px;background:var(--fill);
+}
+.m-stage-top{display:grid;grid-template-columns:minmax(116px,44%) minmax(0,1fr);
+  gap:15px;align-items:center}
+.m-stage-top>.cover{width:100%;border-radius:14px;
+  box-shadow:0 14px 26px -16px var(--shadow)}
+.m-stage-copy{min-width:0}
+.m-stage-copy h3{margin:0 0 3px;font-size:clamp(21px,5.5vw,34px);
+  line-height:1.04;letter-spacing:-.035em;overflow:hidden;text-overflow:ellipsis}
+.m-stage-copy p{margin:0;color:var(--dim);font-size:12.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-progress{height:3px;margin:13px 0 5px;border-radius:99px;
+  overflow:hidden;background:var(--edge)}
+.m-progress i{display:block;width:0;height:100%;border-radius:inherit;
+  background:var(--acc);transition:width 200ms linear}
+.m-times{display:flex;justify-content:space-between;color:var(--faint);
+  font:10.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
+.m-stage-controls{display:grid;grid-template-columns:1fr 1fr 1.35fr 1fr auto;
+  gap:7px;margin-top:11px}
+.m-stage-controls .key{min-height:44px;padding:7px 4px}
+.m-stage-controls .mq{margin:0;min-width:54px}
+
+/* Cover Flow: the recent shelf becomes spatial and album-first. The same
+ * tiles still own tap/double-tap/hold, so this is presentation, not a second
+ * interaction language. */
+.m-coverflow{margin-bottom:13px}
+.m-coverflow-head{display:flex;align-items:baseline;justify-content:space-between;
+  padding:0 2px 7px;color:var(--dim);font-size:10.5px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase}
+.m-coverflow-head small{color:var(--faint);font-size:10.5px;font-weight:400;
+  letter-spacing:.02em;text-transform:none}
+.m-coverflow-stage{overflow:hidden;padding:20px 0 16px;border-radius:20px;
+  background:linear-gradient(145deg,var(--card-2),var(--fill))}
+.m-coverflow-track{display:flex;align-items:center;gap:11px;overflow-x:auto;
+  padding:2px max(42px,calc(50% - 112px)) 12px;scroll-snap-type:x mandatory;
+  overscroll-behavior-x:contain;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.m-coverflow-track::-webkit-scrollbar{display:none}
+.m-coverflow-card{flex:0 0 176px;opacity:.46;transform:scale(.84);
+  scroll-snap-align:center;transition:opacity 180ms ease-out,
+  transform 220ms var(--ease-out)}
+.m-coverflow-card.selected{opacity:1;transform:none}
+.m-coverflow-card:active{transform:scale(.97)}
+.m-coverflow-card .cover{border-radius:16px;
+  box-shadow:0 18px 30px -16px var(--shadow)}
+.m-coverflow-copy{padding:0 18px;text-align:center}
+.m-coverflow-copy h3{margin:0;font-size:24px;line-height:1.08;
+  letter-spacing:-.035em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-coverflow-copy p{margin:4px 0 0;color:var(--dim);font-size:12.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.m-coverflow-actions{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:14px}
+.m-coverflow-actions .key{min-height:42px}
+.m-coverflow-actions .mq{margin:0;min-width:72px}
+#m-coverflow-play:disabled{opacity:.45}
+.m-coverflow-dots{display:flex;justify-content:center;gap:5px;height:4px;margin-top:8px}
+.m-coverflow-dots i{display:block;width:4px;height:4px;border-radius:99px;
+  background:var(--edge);transition:width 180ms var(--ease-out),background 180ms ease-out}
+.m-coverflow-dots i.on{width:13px;background:var(--acc)}
+
+.mgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 10px}
+.tile{
+  border:0;background:none;padding:0;text-align:left;
+  display:flex;flex-direction:column;gap:2px;min-width:0;
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+}
+.tile{transition:transform 140ms var(--ease-out),opacity 140ms var(--ease-out)}
+.tile:active{opacity:.72;transform:scale(.97)}
+/* The cover box draws the placeholder note; the img covers it once (and if)
+ * it loads, so missing artwork degrades without a broken-image icon. */
+.cover{
+  position:relative;width:100%;aspect-ratio:1;border-radius:10px;
+  background:var(--fill);overflow:hidden;
+  display:flex;align-items:center;justify-content:center;
+}
+.cover::before{content:"\266A";font-size:29px;color:var(--faint)}
+.cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  -webkit-user-drag:none;transition:opacity 240ms ease}
+@keyframes tile-in{
+  from{opacity:0;transform:translateY(8px)}
+  to{opacity:1;transform:none}
+}
+.mgrid .tile{animation:tile-in 240ms var(--ease-out) both}
+.mgrid .tile:nth-child(2){animation-delay:40ms}
+.mgrid .tile:nth-child(3){animation-delay:80ms}
+.mgrid .tile:nth-child(4){animation-delay:120ms}
+.mgrid .tile:nth-child(5){animation-delay:160ms}
+.mgrid .tile:nth-child(6){animation-delay:200ms}
+.tile b{font-size:14px;font-weight:600;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile small{font-size:13px;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile.held .cover,.song.held{box-shadow:0 0 0 2px var(--acc) inset}
+.m-album-head{display:flex;gap:12px;align-items:center;margin-bottom:10px}
+.return-action{position:relative;width:36px;height:38px;min-height:38px;
+  margin-left:auto;font-size:18px}
+.return-action::after{content:"";position:absolute;inset:-3px}
+.m-album-back{margin-bottom:8px}
+.m-album-head .cover{width:96px;flex:none}
+.m-album-head b{font-size:17px}
+.m-album-head small{display:block;font-size:14px;color:var(--dim)}
+/* The catalog album's one big verb. A pill rather than the round +, because
+   "the whole album" deserves a target the size of the decision. */
+.m-album-head .wide-add{
+  margin-top:8px;padding:6px 14px;border-radius:99px;
+  border:0;background:var(--fill);color:var(--ink);
+  font-size:13px;font-weight:600;
+}
+/* Search results reuse the album grid; give the sticky note some air. */
+#m-results{margin-top:10px}
+#m-results .note{grid-column:1/-1}
+.m-explore{display:flex;flex-direction:column;gap:15px;margin-top:4px}
+.m-explore[hidden]{display:none}
+.explore-section{min-width:0}
+.explore-head{display:flex;align-items:baseline;justify-content:space-between;
+  gap:10px;margin:0 2px 7px}
+.explore-head h3{margin:0;font-size:15px;letter-spacing:-.01em}
+.explore-head span{color:var(--faint);font-size:9.5px;font-weight:650;
+  letter-spacing:.09em;text-transform:uppercase}
+.explore-row{display:grid;grid-auto-flow:column;
+  grid-auto-columns:minmax(132px,44%);gap:9px;overflow-x:auto;
+  padding:1px 2px 7px;scroll-snap-type:x proximity;
+  overscroll-behavior-x:contain;scrollbar-width:none;
+  -webkit-overflow-scrolling:touch}
+.explore-row::-webkit-scrollbar{display:none}
+.explore-card{display:flex;flex-direction:column;min-width:0;padding:7px;
+  border-radius:13px;background:var(--fill);scroll-snap-align:start}
+.explore-card .cover{border-radius:9px}
+.explore-copy{min-width:0;padding:6px 1px 5px}
+.explore-copy b,.explore-copy small{display:block;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.explore-copy b{font-size:12.5px}
+.explore-copy small{font-size:10.5px;color:var(--dim);text-transform:capitalize}
+.explore-actions{display:flex;gap:5px;margin-top:auto}
+.explore-actions button{flex:1;min-width:0;min-height:30px;padding:5px;
+  border:0;border-radius:8px;background:var(--card);color:var(--ink);
+  font-size:10.5px;font-weight:650}
+.explore-actions button:active{background:var(--press)}
+.msongs{display:flex;flex-direction:column}
+.song{
+  display:flex;align-items:center;gap:11px;border:0;background:none;
+  padding:11px 2px;border-bottom:1px solid var(--edge);text-align:left;
+  min-width:0;user-select:none;-webkit-user-select:none;
+  -webkit-touch-callout:none;
+}
+.song{transition:transform 140ms var(--ease-out),opacity 140ms var(--ease-out)}
+.song:active{opacity:.72;transform:scale(.985)}
+.song .n{flex:none;width:20px;font-size:12px;color:var(--faint);
+  font-variant-numeric:tabular-nums;text-align:right}
+.song .cover{width:48px;flex:none;border-radius:8px}
+.song .cover::before{font-size:18px}
+.song .t{flex:1;min-width:0}
+.song .t b{display:block;font-size:15px;font-weight:500;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.song .t small{display:block;font-size:13px;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The recently-added song view gets shelf-weight rows: the cover is the
+ * identity here (there is no album context around it), so it earns real
+ * size, and the text scales with it. */
+#m-songs .song .cover{width:56px;border-radius:9px}
+#m-songs .song .t b{font-size:16px}
+#m-songs .song .t small{font-size:13.5px}
+.song .d{flex:none;font-size:12px;color:var(--faint);
+  font-variant-numeric:tabular-nums}
+.song-actions{display:flex;flex:none;gap:5px}
+/* The add button inside a search row IS a normal command button. */
+.song .add{
+  flex:none;min-width:30px;height:30px;border-radius:15px;padding:0 7px;
+  border:0;background:var(--fill);color:var(--dim);
+  font-size:17px;line-height:1;display:flex;align-items:center;
+  justify-content:center;
+}
+
+/* Focus queue: a transport view, not a Music-library view. It replaces the
+ * shell's control rail while the transport stays put. On iPad that means it
+ * remains in the stable left column in portrait and landscape; Music keeps
+ * browsing, untouched, on the right. */
+.mq-focus{
+  position:absolute;inset:0;z-index:3;overflow:hidden;
+  padding:0 14px 12px;background:var(--card);
+  display:flex;flex-direction:column;
+  opacity:0;pointer-events:none;transform:translateX(24px);
+  transition:transform 220ms var(--ease-out),opacity 160ms ease-out;
+}
+.mq-focus[hidden]{display:none}
+.rail-stack.queue-open>.rail{
+  opacity:0;pointer-events:none;transform:translateX(-14px);
+}
+.rail-stack.queue-open>.mq-focus{
+  opacity:1;pointer-events:auto;transform:none;
+}
+.mq-focus-head{
+  position:relative;z-index:2;flex:none;
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
+  min-height:46px;margin-bottom:8px;
+  background:color-mix(in srgb,var(--card) 88%,transparent);
+  -webkit-backdrop-filter:blur(18px) saturate(1.4);
+  backdrop-filter:blur(18px) saturate(1.4);
+}
+.mq-scroll{
+  flex:1;min-height:0;overflow-y:auto;padding-bottom:8px;
+  overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;
+}
+.mq-focus-head h2{
+  grid-column:2;grid-row:1;margin:0;font-size:19px;line-height:1.1;
+  letter-spacing:-.015em;
+}
+.mq-back{
+  grid-column:3;grid-row:1;justify-self:end;margin-left:0;
+  border:0;background:var(--fill);color:var(--acc);
+}
+.mq-focus-head>span{grid-column:1;grid-row:1}
+.mq-section{max-width:720px;margin:0 auto}
+.mq-section h3{
+  margin:14px 0 5px;color:var(--faint);
+  font-size:10.5px;line-height:1.2;font-weight:700;
+  letter-spacing:.13em;text-transform:uppercase;
+}
+.mq-playing,.mq-item{
+  display:grid;grid-template-columns:48px minmax(0,1fr) auto;
+  align-items:center;gap:10px;min-height:61px;
+}
+.mq-playing{
+  padding:7px 9px;border-radius:13px;background:var(--acc-tint);
+}
+.mq-item{position:relative;border-bottom:1px solid var(--edge)}
+.mq-item .cover,.mq-playing .cover{
+  width:48px;flex:none;border-radius:8px;
+}
+.mq-copy{min-width:0}
+.mq-copy b,.mq-copy small{
+  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.mq-copy b{font-size:14.5px;font-weight:600}
+.mq-copy small{font-size:12.5px;color:var(--dim)}
+.mq-duration{
+  color:var(--faint);font:500 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-variant-numeric:tabular-nums;
+}
+.mq-empty{padding:42px 14px;color:var(--faint);text-align:center}
+.mq-clear{
+  flex:none;display:block;width:min(720px,100%);min-height:44px;
+  margin:8px auto 0;padding:10px 12px;border:0;border-radius:12px;
+  background:color-mix(in srgb,var(--red) 12%,transparent);
+  color:var(--red);font-weight:650;
+}
+.mq-clear[hidden]{display:none}
+.mq-clear.ask{background:var(--red);color:#fff}
+
+/* Split Deck is still transport-owned. On a phone the shell divides its
+ * rail vertically only while Music is active; on iPad this same element
+ * stays in the permanent left column while the library remains on the right.
+ * Its own scroller keeps Stop & clear pinned and reachable for long queues. */
+.mq-split{
+  display:none;flex-direction:column;flex:none;min-height:0;
+  padding:9px 14px 10px;border-top:1px solid var(--edge);background:var(--card);
+}
+.mq-split-head{display:flex;align-items:center;gap:8px;flex:none;min-height:34px}
+.mq-split-head h2{margin:0;font-size:16px;letter-spacing:-.015em}
+.mq-split-head span{margin-left:auto;color:var(--faint);font-size:10.5px;
+  text-transform:uppercase;letter-spacing:.08em}
+.mq-split-clear{
+  flex:none;min-width:55px;min-height:32px;padding:5px 8px;border:0;
+  border-radius:8px;background:color-mix(in srgb,var(--red) 11%,transparent);
+  color:var(--red);font-size:11.5px;font-weight:650;
+  transition:transform 140ms var(--ease-out),background-color 140ms ease,
+    color 140ms ease;
+}
+.mq-split-clear:active{transform:scale(.96)}
+.mq-split-clear[hidden]{display:none}
+.mq-split-clear.ask{background:var(--red);color:#fff}
+.mq-split-scroll{flex:1;min-height:0;overflow-y:auto;padding-bottom:5px;
+  overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
+.mq-split .mq-section h3{margin-top:9px}
+.mq-split .mq-playing,.mq-split .mq-item{
+  grid-template-columns:38px minmax(0,1fr) auto;min-height:49px;gap:8px;
+}
+.mq-split .mq-playing .cover,.mq-split .mq-item .cover{width:38px}
+.mq-split .mq-copy b{font-size:13px}
+.mq-split .mq-copy small{font-size:11px}
+:root[data-music-layout='split-deck'] .app.music-current .mq-split{
+  display:flex;flex-basis:min(43%,330px)
+}
+.m-q{
+  width:100%;padding:10px 12px;font-size:17px;border-radius:10px;
+  border:0;background:var(--fill);color:var(--ink);
+  margin-bottom:8px;-webkit-appearance:none;
+}
+/* The shell's, not a page's: it sits between the rail and the tabs and
+ * never moves while panels swipe -- same standing as the screen above. */
+.mbar{
+  flex:none;padding:8px 14px;
+  background:var(--card);border-top:1px solid var(--edge);
+  display:flex;flex-direction:column;gap:7px;
+}
+/* The mini-player line: a small cover, then track over album -- artist,
+ * the way any player's bottom bar does it. */
+.mnow{display:flex;align-items:center;gap:9px;min-width:0;padding:0 2px}
+.mnow .cover{width:34px;flex:none;border-radius:6px}
+.mnow .cover::before{font-size:15px}
+.mnow .t{min-width:0;display:flex;flex-direction:column}
+.mnow .t b{font-size:14px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.mnow .t small{font-size:12px;color:var(--dim);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+/* The queue chip: how many songs are waiting, and the only useful thing to
+ * do about them. Present only when the queue is not empty, so the bar is no
+ * busier than before whenever there is nothing to clear. */
+.mq{
+  /* Hard against the right edge, however short the track title is: the
+   * auto margin eats the slack the now-playing text does not claim. */
+  flex:none;margin-left:auto;
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:1px;min-width:52px;min-height:38px;
+  padding:4px 8px;border-radius:9px;
+  border:0;background:var(--fill);color:var(--dim);
+  transition:transform 160ms var(--ease-out),color 160ms ease,
+             box-shadow 160ms ease;
+}
+.mq:active{transform:scale(.94)}
+/* Needed, and not obvious: the browser's own [hidden]{display:none} has the
+ * same specificity as .mq, and an author rule beats the UA sheet on a tie --
+ * so `display:flex` above quietly un-hid the chip and it sat there reading
+ * "0 QUEUED" forever. Any class that sets display on a hideable element
+ * needs this line. */
+.mq[hidden]{display:none}
+.mq b{font:700 15px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.mq small{font-size:9.5px;line-height:1;letter-spacing:.06em;
+  text-transform:uppercase}
+/* Armed: the second tap is the one that deletes, so it says so and takes the
+ * off-switch red the rest of the app already uses for it. */
+.mq.ask{box-shadow:0 0 0 1.5px var(--red) inset;color:var(--red)}
+.mq.ask b{color:var(--red)}
+.mrow{display:flex;gap:8px;align-items:center}
+/* The volume: one round green button beside the transport. Top half turns
+ * it up, bottom half down -- app.js splits the tap on the button's midline,
+ * so the +/- are captions, not separate targets. */
+.mvol{
+  width:72px;height:72px;flex:none;border-radius:50%;border:0;
+  background:var(--acc-tint);
+  color:var(--acc);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  transition:transform 160ms var(--ease-out);padding:0;
+}
+.mvol:active{transform:scale(.94)}
+.mvol .v{font:700 21px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-variant-numeric:tabular-nums}
+.mvol .half{font-size:12px;line-height:1;opacity:.7}
+.mkeys{flex:1;display:grid;grid-template-columns:1fr 1fr 1.4fr 1fr;gap:7px}
+.mkeys .key{min-height:46px;padding:8px 4px}
+
+/* Stage already carries the complete transport, so its dock collapses to
+ * now-playing, play/pause and volume instead of repeating five controls. */
+:root[data-music-layout='stage'] .mbar{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;
+  column-gap:8px
+}
+:root[data-music-layout='stage'] .mbar .mrow{gap:7px}
+:root[data-music-layout='stage'] .mbar .mkeys{display:block;flex:none}
+:root[data-music-layout='stage'] .mbar .mkeys .key{display:none}
+:root[data-music-layout='stage'] .mbar .mkeys .key:nth-child(3){
+  display:block;width:44px;min-height:42px
+}
+:root[data-music-layout='stage'] .mbar .mvol{width:44px;height:44px}
+:root[data-music-layout='stage'] .mbar .mvol .half{display:none}
+:root[data-music-layout='stage'] .mbar .mvol .v{font-size:16px}
+
+/* ---- toast ------------------------------------------------------------- */
+.toast{
+  position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));
+  transform:translate(-50%,14px);
+  max-width:min(360px,calc(100vw - 32px));
+  background:var(--ink);color:var(--page);
+  padding:9px 14px;border-radius:11px;font-size:13.5px;line-height:1.4;
+  box-shadow:0 10px 24px -8px rgba(0,0,0,.55);
+  opacity:0;pointer-events:none;
+  transition:opacity 120ms var(--ease-out),transform 120ms var(--ease-out);
+  z-index:20;text-align:center;
+}
+.toast.on{opacity:.97;transform:translate(-50%,0);
+  transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out)}
+.toast b{display:block;font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+  opacity:.6;font-weight:600;margin-bottom:1px}
+
+/* ---- sheet (the D900 resync picker) ------------------------------------ */
+.sheet{position:fixed;inset:0;z-index:30;display:none;
+  align-items:flex-end;justify-content:center;
+  background:rgba(6,9,13,.55);padding:12px}
+.sheet.on{display:flex}
+.sheet-card{width:100%;max-width:400px;background:var(--card);
+  border:1px solid var(--edge);border-radius:20px;padding:16px;
+  padding-bottom:calc(16px + env(safe-area-inset-bottom));
+  box-shadow:0 -8px 40px -12px rgba(0,0,0,.5)}
+.sheet-card h3{margin:0 0 4px;font-size:16px}
+.sheet-card p{margin:0 0 12px;font-size:13px;color:var(--dim);line-height:1.45}
+/* Eight input names across four columns: BLUETOOTH is the one that decides
+ * how small this has to be on a narrow phone. */
+.sheet .grid.c4 .key{font-size:11px;padding:11px 3px;letter-spacing:-.01em}
+
+/* ---- gate -------------------------------------------------------------- */
+form.gate{display:flex;flex-direction:column;gap:12px;margin:14px 0}
+input[type=text]{width:100%;padding:12px;font-size:17px;border-radius:10px;
+  border:0;background:var(--fill);color:var(--ink)}
+button.go{padding:13px;font-size:16px;font-weight:600;border:0;border-radius:10px;
+  background:var(--acc-tint);color:var(--acc)}
+code{font-size:13px;color:var(--dim)}
+.hint{color:var(--dim);font-size:12px;line-height:1.5}
+
+/* ---- reduced motion ----------------------------------------------------- */
+/* Fewer and gentler, not zero: fades that carry state stay, movement goes. */
+@media (prefers-reduced-motion: reduce){
+  .mgrid .tile{animation:none}
+  .key,.tile,.song,.dial,.mvol,.m-coverflow-card,.m-progress i,
+  .m-coverflow-dots i{transition:opacity 120ms ease}
+  .key:active,.dial:active,.mvol:active,.tile:active,.song:active{transform:none}
+  .toast{transition:opacity 150ms ease}
+  .led{animation:none}
+  .rail,.mq-focus,.settings-workspace{transition:opacity 120ms ease;transform:none}
+  .panel-setting-row,.panel-setting-toggle span,
+  .panel-setting-toggle span::after{transition:none}
+}
+
+/* ---- the wide stage (iPad portrait/landscape, and roomy windows) -------- */
+/* Layout C, "remote & library" (mocked and approved 2026-08-09): the remote
+ * keeps a generous control column on the left -- readouts, a rail that snaps
+ * between Home/Ask/TV/Amp, four tabs -- and the Music panel unfolds
+ * PERMANENTLY across the right. app.js moves #page-music out of the rail at
+ * this same breakpoint; the transport and its queue stay in the left stack.
+ * Full-width iPad portrait keeps the same split; compact Split View falls
+ * back to the hand-held rail.
+ *
+ * This block lives at the END of the file on purpose: media queries add no
+ * specificity, so on a tie the LATER rule wins -- parked earlier, the base
+ * .tabs/.mbar/.sheet rules quietly overrode half of it. */
+@media (min-width:740px){
+  :root{--rail-w:clamp(420px,42vw,520px)}
+  body{padding:0}
+  .app{
+    max-width:none;
+    height:100vh;height:100dvh;
+    border:0;border-radius:0;box-shadow:none;
+    display:grid;
+    grid-template-columns:var(--rail-w) minmax(0,1fr);
+    grid-template-rows:auto auto minmax(0,1fr) auto auto;
+    /* The transport docks in the REMOTE column, exactly the phone's stack
+     * (rail, transport, tabs) -- stretched across the full stage it read
+     * as a thirteen-hundred-point toolbar. Music owns the whole right. */
+    grid-template-areas:
+      "brand brand"
+      "screen music"
+      "rail   music"
+      "mbar   music"
+      "tabs   music";
+  }
+  .brand{grid-area:brand}
+  .screen{grid-area:screen}
+  .rail-deck{grid-area:rail}
+  .tabs{grid-area:tabs;grid-template-columns:repeat(var(--wide-tabs,3),1fr)}
+  .tab[data-tab='music']{display:none}
+  .app>#page-music{
+    grid-area:music;
+    border-left:1px solid var(--edge);
+    padding:12px 20px;
+  }
+  .app>#page-music .mgrid{grid-template-columns:repeat(2,1fr)}
+  .app>#page-music .m-album-head .cover{width:112px}
+  .app>#page-music .m-stage{padding:16px}
+  .app>#page-music .m-stage-top{grid-template-columns:minmax(180px,38%) minmax(0,1fr)}
+  .app>#page-music .m-coverflow-stage{padding-top:28px}
+  .app>#page-music .m-coverflow-track{gap:18px;
+    padding-inline:max(70px,calc(50% - 145px))}
+  .app>#page-music .m-coverflow-card{flex-basis:230px}
+  .app>#page-music .m-coverflow-copy h3{font-size:31px}
+  .app>#page-music .explore-row{grid-auto-columns:minmax(150px,28%)}
+  .agent-shell{gap:14px}
+  .agent-log{gap:14px;padding-inline:4px}
+  .agent-msg{font-size:18px;line-height:1.55;padding:14px 17px}
+  .agent-msg.agent{max-width:min(94%,42rem)}
+  .agent-msg.user{max-width:min(86%,36rem)}
+  /* Keep Up Next compact inside the permanent transport column. */
+  .rail-stack .mq-section{max-width:none}
+  .rail-stack .mq-clear{width:100%}
+  .rail-stack .mq-playing,.rail-stack .mq-item{
+    grid-template-columns:42px minmax(0,1fr) auto;gap:9px;
+  }
+  .rail-stack .mq-playing .cover,.rail-stack .mq-item .cover{width:42px}
+  :root[data-music-layout='split-deck'] .mq-split{
+    display:flex;flex-basis:min(46%,390px)
+  }
+  .mbar{grid-area:mbar}
+  /* If Music is disabled, keep the rack remote deliberately phone-sized and
+   * centered instead of reserving an empty permanent-library column. */
+  .app.no-music-panel{
+    grid-template-columns:minmax(0,480px);justify-content:center;
+    grid-template-areas:"brand" "screen" "rail" "mbar" "tabs";
+  }
+  .settings-workspace{
+    grid-template-columns:245px minmax(0,1fr);grid-template-rows:1fr;
+  }
+  .settings-nav{
+    display:flex;flex-direction:column;padding:20px 12px;
+    border:0;border-right:1px solid var(--edge);background:var(--card-2);
+  }
+  .settings-nav button{
+    flex:none;padding:10px 12px;flex-direction:row;justify-content:flex-start;
+    gap:8px;font-size:inherit;text-align:left;
+  }
+  .settings-page{padding:32px clamp(28px,5vw,64px) 44px}
+  .settings-page>header h1{font-size:34px}
+  .layout-choices{grid-template-columns:repeat(4,minmax(120px,1fr));max-width:900px}
+  .theme-choices{grid-template-columns:repeat(6,minmax(90px,1fr));max-width:900px}
+  .provider-profiles{max-width:760px}
+  .provider-actions,.setting-note{max-width:760px}
+  /* A centered card reads better than a bottom drawer on a big canvas. */
+  .sheet{align-items:center}
+}
+
+@media (min-width:1000px){
+  .app>#page-music .mgrid{grid-template-columns:repeat(4,1fr)}
+  .app>#page-music .m-album-head .cover{width:132px}
+}
+
+/* Pointer hardware (trackpad, Pencil, a Mac browser): the phone's
+ * :active-only affordances gain a hover layer. Touch is unaffected. */
+@media (hover:hover){
+  .key:hover{background:var(--press)}
+  .key.accent:hover{filter:brightness(1.05)}
+  .tab:hover,.seg-btn:hover,.link:hover,.iconbtn:hover{color:var(--ink)}
+  .song:hover{background:var(--fill)}
+  .tile:hover{opacity:.85}
+  .dial:hover,.mvol:hover{filter:brightness(1.05)}
+}

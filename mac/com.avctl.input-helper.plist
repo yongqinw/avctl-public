@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Install for the logged-in account under ~/Library/LaunchAgents.
+     The helper must NOT be a LaunchDaemon: CGEvent needs the Aqua session. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key> <string>com.avctl.input-helper</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/libexec/avctl-input-helper</string>
+  </array>
+  <key>RunAtLoad</key> <true/>
+  <key>KeepAlive</key> <true/>
+  <key>ThrottleInterval</key> <integer>3</integer>
+</dict>
+</plist>

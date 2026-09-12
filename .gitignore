@@ -1,0 +1,34 @@
+__pycache__/
+*__pycache__/*
+*.pyc
+.venv/
+venv/
+.installer-venv/
+dist/
+.DS_Store
+.claude/settings.local.json
+
+# Owner configuration and deployment artifacts. Public releases use
+# configs/defaults.yaml; the Setup UI writes the live overlay to Application
+# Support. Ignore local copies and machine-specific deployment files.
+configs/config.yaml
+configs/router/
+configs/com.avctl.api.plist
+configs/tv_picture_baseline.yaml
+app/ExportOptions.plist
+
+# Agent skills installed by `npx skills` -- per-machine tooling, not app code
+.agents/
+.claude/skills/
+skills-lock.json
+
+# The Xcode project is generated from app/project.yml by xcodegen -- build
+# output, not source. Same for the Info.plists and entitlements files it
+# writes (their content lives in project.yml's info/entitlements blocks;
+# keep rendered copies out of source control) and Xcode's adjacent output.
+app/*.xcodeproj/
+app/build/
+app/DerivedData/
+app/*/Info.plist
+app/*/*.entitlements
+*.xcuserstate

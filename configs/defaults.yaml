@@ -1,0 +1,147 @@
+# Safe bundled defaults for avctl Core.
+#
+# Machine-specific hosts, IDs, topology, learned commands, credentials, and
+# signing values belong in the owner overlay written by the setup wizard:
+#
+#   ~/Library/Application Support/avctl/config.yaml
+#
+# AVCTL_CONFIG_FILE may select a different owner-controlled overlay.
+
+network:
+  av_subnet: null
+
+# Core remains loopback-only. The setup wizard may choose another unprivileged
+# port; Tailscale Serve publishes it without widening the bind address.
+server:
+  port: 8000
+
+tv:
+  driver: LGTelevision
+  host: null
+  mac: null
+  inputs: {}
+  LGTelevision:
+    client_key_file: ~/.avctl/tv-client-key
+
+bluray:
+  host: null
+  mac: null
+  player_key: null
+
+blaster:
+  host: null
+  ports: {tv: null, dac: null, disc: null}
+  codes: {}
+
+dac:
+  driver: ToppingD900
+  ToppingD900:
+    codes: {input_next: "", power: ""}
+    state_file: ~/.avctl/dac_input
+
+amp:
+  driver: McIntoshMAC7200
+  dac_input: bal
+  dac_input_id: null
+  presets: {music: 50, cinema: 50}
+  max_volume: 70
+  McIntoshMAC7200:
+    port: null
+    baud: 115200
+
+roon:
+  mode: live
+  token_file: ~/.avctl/roon-token
+  # Roon tokens are scoped to this stable identity. An installation may
+  # persist a previous value in ~/.avctl/roon-extension-id during migration.
+  core_id: null
+  output_id: null
+  max_volume: 80
+  command_timeout: 8
+  connect_timeout: 15
+  snapshot_file: ~/.avctl/roon_snapshot.json
+  snapshot_ttl: 300
+
+music:
+  driver: AppleMusic
+  backend_state_file: ~/.avctl/music-backend
+  scene_volume: 50
+  max_volume: 80
+  dispatch_budget_ms: 200
+  place_ms: 19
+  queue_window: 20
+  drip_chunk: 15
+  drip_tick: 5
+  autoplay_depth: 0
+  order_cache_ttl: 30
+  recent_limit: 60
+  artwork_cache: ~/.avctl/artwork
+  AppleMusic:
+    queue_playlist: avctl
+    catalog_player: ~/.avctl/bin/AvctlMusicBridge.app/Contents/MacOS/AvctlMusicBridge
+    storefront: us
+    team_id: null
+    key_id: null
+    key_file: ~/.avctl/musickit-private-key.p8
+  RoonMusic:
+    library_file: ~/.avctl/roon_library.sqlite3
+    disconnect_grace_seconds: 30
+
+# Optional. Managed installations keep APNs provider credentials on the
+# owner's notification service and never distribute the private key.
+phone: {}
+
+apple_services:
+  mode: local
+  broker:
+    url: https://broker.example.com
+    state_file: ~/.avctl/apple-broker.json
+    timeout: 12
+    apns_environment: sandbox
+
+invariants:
+  tv_speakers: never
+
+sync:
+  poll_interval: 1
+  sse_heartbeat: 15
+
+agent:
+  active_profile: fireworks-priority
+  profiles:
+    fireworks-priority:
+      driver: fireworks
+      base_url: https://api.fireworks.ai/inference/v1
+      model: accounts/fireworks/models/deepseek-v4p1-flash
+      credential:
+        env: FIREWORKS_API_KEY
+        file: ~/.avctl/fireworks-api-key
+      service_tier: priority
+      timeout_seconds: 300
+      max_tokens: 100000
+      parallel_tool_calls: true
+      concurrency: 4
+      pricing:
+        input_per_million: 0.21
+        cached_input_per_million: 0.042
+        output_per_million: 0.42
+    kimi-k3:
+      driver: fireworks
+      base_url: https://api.fireworks.ai/inference/v1
+      model: accounts/fireworks/models/kimi-k3
+      credential:
+        env: FIREWORKS_API_KEY
+        file: ~/.avctl/fireworks-api-key
+      service_tier: priority
+      timeout_seconds: 300
+      max_tokens: 100000
+      parallel_tool_calls: true
+      concurrency: 4
+      pricing:
+        input_per_million: 3.75
+        cached_input_per_million: 0.375
+        output_per_million: 18.75
+
+ui:
+  panels: [home, music, agent, mini, tv, amp]
+  scenes: []

@@ -1,0 +1,203 @@
+# McIntosh MAC7200 RS-232 control protocol.
+#
+# Transcribed from a protocol PDF found online (Tables 3, 4, 5). Provenance is
+# not purely McIntosh -- at least one row carries a third-party annotation
+# ("don't seem to match use on Apple computer"), so treat this as a very good
+# starting map, not gospel. The unit itself is authoritative: see `discovery`
+# at the bottom.
+#
+# Serial: 115200 baud, 8 data bits, no parity, 1 stop bit (confirmed in the
+# owner's manual; adjustable 9600-115200 via front panel SETUP: RS232).
+
+# ---------------------------------------------------------------------------
+# MEASURED against a MAC7200 (fw 2.10, DA V5.11) over USB serial. THE PDF
+# TABLES BELOW ARE THE WRONG DIALECT
+# for this firmware -- keep them only as a token glossary. Everything the
+# service does must come from this block.
+# ---------------------------------------------------------------------------
+measured:
+  wire: "115200 8N1, commands (CMD [args])\\r, NO zones -- (VUP Z1), (PON Z1),
+         (POF Z1), (PON), (VUP), (HLP) all return (ERROR - Invalid Command)"
+  works:
+    QRY: "full state dump, framed by 0x00 0x00 bytes. In standby returns only
+          identity + (PWR 0); when on, ~20 tokens (see report_tokens)"
+    PWR: "(PWR 1) powers on from standby with a SINGLE send (no PON-twice
+          quirk in this dialect) and immediately replies with the full
+          power-on state dump. (PWR 0) -> standby. Boot settles in ~10s;
+          late (HPS n)(VOL n) reports trail in after the dump."
+    VOL: "(VOL 0-100) absolute set. The amp SLEWS to the target and emits an
+          unsolicited (VOL n) report for EVERY intermediate step -- expect a
+          60-report burst, not an ack."
+  unsolicited: "CONFIRMED live: front-panel changes emit reports with no
+                polling -- one click of the input knob produced (INP 2) the
+                moment it was turned. State tracking can be event-driven."
+  set_semantics: "a set that changes nothing (e.g. (MUT 0) while unmuted)
+                  returns SILENCE, same as a set sent in standby. Silence is
+                  not failure; verify with QRY. Unknown commands DO get an
+                  explicit (ERROR - Invalid Command)."
+  hazards:
+    - "NEVER send '?' as a parameter hoping it queries. '?' parses as 0:
+       (VOL ?) slewed the volume 60->0 and (PWR ?) POWERED THE AMP OFF.
+       QRY is the only query; there are no per-token reads."
+  report_tokens: "PWR VOL MUT OP1 OP2 INP STA TBA TIN TTN TTB TTT TPR TTC TTX
+                  TMO TML TDB THH HPS (+ identity lines MAC7200 / Serial
+                  Number / FW Version / DA Version). T* are tuner state; HPS
+                  is likely headphone sense (2 during boot -> 0 settled)."
+  presumed_untested: "(MUT 1), (INP n), (OP1/OP2 n) -- token-as-command should
+                      hold, but OP1/OP2 polarity is still unverified and
+                      speaker-killing if wrong; observed idle state is
+                      (OP1 1)(OP2 0) with speakers presumably on output 1."
+  dac_input_id: 1      # PRESUMED: the amp idled on (INP 1) at first contact,
+                       # before any knob turning, and settled back there after
+                       # -- and the everyday source is the D900, so its input
+                       # is where the amp rests. (One knob click off it
+                       # reported (INP 2).) The live value the app uses is
+                       # config.yaml's amp.dac_input_id -- confirm against the
+                       # front panel and correct both if wrong.
+
+wire_format:
+  # Every message, in both directions, is wrapped in parentheses with
+  # space-delimited tokens.
+  request: "(CMD [ZONE] [PARAM...])"
+  example: "(VST Z1 30)"
+  zone: Z1          # the only valid zone -- anything else returns ERR 2
+
+# ---------------------------------------------------------------------------
+# DANGER
+# ---------------------------------------------------------------------------
+hazards:
+  - command: CTL
+    note: |
+      CTL enables/disables the RS232 interface itself. Sending (CTL 0) turns
+      off the very channel we are talking over -- likely locking us out until
+      someone walks over to the front panel. NEVER send CTL 0 from the service.
+      Whitelist this one out of any generic passthrough / debug console.
+  - command: PON
+    note: |
+      From standby, PON must be sent TWICE with a 100ms gap. A single PON is
+      silently ignored, which will look like a dead cable during bring-up.
+  - command: [OP1, OP2]
+    note: |
+      Documented as 0=On, 1=Off -- INVERTED relative to MUT and CTL, which are
+      both 0=off-ish, 1=on-ish. Either the doc has a typo or these really are
+      backwards. Verify against hardware before trusting; getting it wrong
+      silently kills the speaker outputs.
+
+# ---------------------------------------------------------------------------
+# Table 3 -- commands
+# ---------------------------------------------------------------------------
+commands:
+  HLP:  {zone: null, params: none,            example: "(HLP)",        desc: "List commands this specific unit supports"}
+  CTL:  {zone: null, params: {0: off, 1: on}, example: "(CTL 1)",      desc: "Enable/disable the RS232 interface -- see hazards"}
+  PON:  {zone: Z1,   params: none,            example: "(PON Z1)",     desc: "Power on. Send twice, 100ms apart, if in standby"}
+  POF:  {zone: Z1,   params: none,            example: "(POF Z1)",     desc: "Power off unit"}
+  SY0:  {zone: null, params: none,            example: "(SY0)",        desc: "Power off system"}
+
+  VUP:  {zone: Z1,   params: "none | step 1-9", example: "(VUP Z1 5)", desc: "Volume up one step, or by step size"}
+  VDN:  {zone: Z1,   params: "none | step 1-9", example: "(VDN Z1 5)", desc: "Volume down one step, or by step size"}
+  VST:  {zone: Z1,   params: "level 0-100",   example: "(VST Z1 30)",  desc: "Set absolute volume level"}
+  MUT:  {zone: Z1,   params: {0: unmuted, 1: muted}, example: "(MUT Z1 1)", desc: "Mute / unmute"}
+  OP1:  {zone: Z1,   params: {0: on, 1: off}, example: "(OP1 Z1 1)",   desc: "Speaker output 1 -- INVERTED, see hazards"}
+  OP2:  {zone: Z1,   params: {0: on, 1: off}, example: "(OP2 Z1 1)",   desc: "Speaker output 2 -- INVERTED, see hazards"}
+
+  INU:  {zone: Z1,   params: none,            example: "(INU Z1)",     desc: "Increment input selection"}
+  IND:  {zone: Z1,   params: none,            example: "(IND Z1)",     desc: "Decrement input selection"}
+  INP:  {zone: Z1,   params: input_id,        example: "(INP Z1 3)",   desc: "Select input directly -- see inputs table"}
+
+  TRU:  {zone: Z1,   params: trim_id,         example: "(TRU Z1 0)",   desc: "Increment the selected trim parameter"}
+  TRD:  {zone: Z1,   params: trim_id,         example: "(TRD Z1 0)",   desc: "Decrement the selected trim parameter"}
+
+  TPC:  {zone: Z1,   params: {0: play, 1: stop, 2: pause, 3: next, 4: back, 5: reverse, 6: forward},
+         example: "(TPC Z1 0)",
+         desc: "Transport control toward the USB source. Doc notes these params
+                'don't seem to match use on Apple computer' -- so with the Mac
+                mini on USB, expect to remap empirically or ignore entirely and
+                drive playback on the Mac instead."}
+
+  CNV:  {zone: null, params: {0: off, 1: on}, example: "(CNV 1)",      desc: "IR converter on/off"}
+  KEY:  {zone: Z1,   params: ir_hex,          example: "(KEY Z1 5F)",  desc: "Transmit a hex IR code out the amp's IR port"}
+  QRY:  {zone: null, params: none,            example: "(QRY)",        desc: "System query -- unit reports full state (Table 4)"}
+
+# ---------------------------------------------------------------------------
+# Table 4 -- unsolicited / query responses
+# ---------------------------------------------------------------------------
+# The amp emits these on state change as well as in response to QRY, which is
+# what makes RS-232 the only device in this rack with real feedback.
+reports:
+  VST:  {params: "level 0-100",                    example: "(VST Z1 30)", desc: "Current volume"}
+  MUT:  {params: {0: unmuted, 1: muted},           example: "(MUT Z1 1)",  desc: "Current mute state"}
+  INP:  {params: input_id,                         example: "(INP Z1 3)",  desc: "Currently selected input"}
+  IRC:  {params: ir_hex,                           example: "(IRC Z1 10)", desc: "An IR code the amp just received -- the amp
+                                                                             will narrate remote presses at us"}
+  TRS:  {params: "trim_id, value",                 example: "(TRS Z1 1 +10)", desc: "Value of a trim parameter"}
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+# NOTE: the select list and the status-report list in the source doc disagree.
+# The report table omits 1/MC, 5/DVD and 7/Server. Assumed to be doc sloppiness
+# rather than real behaviour, but worth confirming.
+inputs:
+  1: MC        # phono, moving coil
+  2: MM        # phono, moving magnet
+  3: CD1
+  4: CD2
+  5: DVD
+  6: AUX
+  7: Server
+  8: D2A
+  9: Tuner
+
+# !! OPEN PROBLEM !!
+# The D900 feeds the MAC7200's BALANCED input, and there is no "BAL" entry in
+# this list. On the MAC7200 the balanced jacks are physical connectors that get
+# assigned to a *named* input in the setup menu -- so our target is whichever
+# name above the balanced pair is mapped to (D2A and CD2 are both plausible).
+# Resolve empirically: select the balanced input from the front panel, then
+# send (QRY) and read which id comes back. Do this first thing after wiring up.
+dac_input_id: TODO
+
+# ---------------------------------------------------------------------------
+# Trim parameters (TRU / TRD selector, and TRS reporting)
+# ---------------------------------------------------------------------------
+trims:
+  0:  "Off"
+  1:  Balance
+  2:  Bass
+  3:  Treble
+  4:  Level
+  5:  Output
+  6:  Bypass
+  7:  Mono
+  8:  Phono
+  9:  Display
+  10: Info
+  11: Meter
+  12: Tuner
+  13: "Radio Text"
+  14: "Tuner Mode"
+# TRS reports a narrower set (0,1,4,5,7,9,10,11) than TRU/TRD accept.
+
+# ---------------------------------------------------------------------------
+# Table 5 -- errors
+# ---------------------------------------------------------------------------
+errors:
+  1: {name: command,        desc: "Unrecognized command"}
+  2: {name: zone,           desc: "Use only Z1"}
+  3: {name: parameter,      desc: "Format or value in error"}
+  4: {name: request_blocked, desc: "Trim or Setup Mode is active -- someone is in the
+                                    front panel menu. Transient; retry."}
+  5: {name: zone_off,       desc: "Requested zone must be on first -- send PON before
+                                   anything else in a scene"}
+  6: {name: input,          desc: "Wrong input selected for request"}
+
+# ---------------------------------------------------------------------------
+# Bring-up plan
+# ---------------------------------------------------------------------------
+discovery:
+  # The unit describes itself, so most of the uncertainty above is one cable
+  # away from being resolved. Run these in order once wired:
+  - "(HLP)  -> authoritative command list for THIS unit; diff against the above"
+  - "(QRY)  -> full current state, and reveals the real input id in use"
+  - "select the balanced input on the front panel, (QRY) again -> dac_input_id"
+  - "nudge the volume knob by hand -> confirms the amp emits unsolicited reports"

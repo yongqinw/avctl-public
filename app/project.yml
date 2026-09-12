@@ -1,0 +1,149 @@
+# The Xcode project, described instead of clicked together. `xcodegen
+# generate` (run here) writes avctl.xcodeproj, which is ignored by git --
+# the project file is build output, this file is the source. That is what
+# supports reproducible project generation from a clean checkout.
+name: avctl
+options:
+  deploymentTarget:
+    iOS: "26.0"   # Required for WidgetKit push reloads.
+    macOS: "26.0"
+settings:
+  base:
+    # Supply your Apple development team at archive time.
+    DEVELOPMENT_TEAM: ""
+    AVCTL_APP_BUNDLE_ID: org.avctl.remote
+    AVCTL_APP_GROUP: group.org.avctl.remote
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    # iPhone + iPad, project-wide on purpose: a widget extension narrower
+    # than its host app fails validation, and this one line covers both.
+    TARGETED_DEVICE_FAMILY: "1,2"
+    # Override CURRENT_PROJECT_VERSION with a unique build number when
+    # archiving a release. Zero is the default for a local development build.
+    CURRENT_PROJECT_VERSION: 0
+    MARKETING_VERSION: "5.0"
+    VERSIONING_SYSTEM: apple-generic
+targets:
+  avctl:
+    type: application
+    platform: iOS
+    sources:
+      - path: avctl
+      - path: Shared
+      - path: ../LICENSE
+        type: file
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(AVCTL_APP_BUNDLE_ID)
+        # The same power glyph the web app renders in api/pwa.py -- the home
+        # screen icon should look like the app it opens, both doors alike.
+        # Regenerate after a design change:
+        #   ./venv/bin/python -c "from api.pwa import icon_png; \
+        #     open('app/avctl/Assets.xcassets/AppIcon.appiconset/icon-1024.png','wb')\
+        #     .write(icon_png(1024))"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: avctl/Info.plist
+      properties:
+        CFBundleDisplayName: avctl
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        UILaunchScreen: {}
+        # The phone stays portrait-locked; the iPad rotates freely and,
+        # with no UIRequiresFullScreen, multitasks -- a narrow Split View
+        # window simply gets the phone layout, which app.css keys on width.
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown,
+           UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        NSMicrophoneUsageDescription: >-
+          avctl records commands you hold to speak and sends them to your Mac mini.
+        NSLocalNetworkUsageDescription: >-
+          avctl discovers your Core and supported AV devices on your local network.
+        NSBonjourServices: [_avctl._tcp]
+        # The panel is normally https via tailscale serve; this allows the
+        # plain-http bearer-token fallback on the LAN, nothing wider.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # Background App Refresh (#126, strategy 2): iOS-granted wake
+        # windows resync PlaybackStore and the widget opportunistically.
+        # Declaring the mode is also what makes avctl appear under
+        # Settings > General > Background App Refresh at all -- the toggle
+        # only exists for apps that declare a background capability.
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [$(AVCTL_APP_BUNDLE_ID).refresh]
+        AVCTLAppGroup: $(AVCTL_APP_GROUP)
+    entitlements:
+      path: avctl/avctl.entitlements
+      properties:
+        aps-environment: development   # Xcode-installed builds push via the APNs sandbox
+        com.apple.security.application-groups: [$(AVCTL_APP_GROUP)]
+    dependencies:
+      - target: AvctlIsland
+  AvctlIsland:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: AvctlIsland
+      - path: Shared
+      - path: ../LICENSE
+        type: file
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(AVCTL_APP_BUNDLE_ID).island
+        SKIP_INSTALL: true
+    info:
+      path: AvctlIsland/Info.plist
+      properties:
+        CFBundleDisplayName: avctl
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        AVCTLAppGroup: $(AVCTL_APP_GROUP)
+    entitlements:
+      path: AvctlIsland/island.entitlements
+      properties:
+        # The widget push token (#126) is minted for this extension.
+        aps-environment: development
+        com.apple.security.application-groups: [$(AVCTL_APP_GROUP)]
+  AvctlMusicBridge:
+    type: application
+    platform: macOS
+    sources:
+      - path: AvctlMusicBridge
+      - path: ../LICENSE
+        type: file
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(AVCTL_APP_BUNDLE_ID).musicbridge
+        OTHER_SWIFT_FLAGS: -parse-as-library
+    info:
+      path: AvctlMusicBridge/Info.plist
+      properties:
+        CFBundleDisplayName: AvctlMusicBridge
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        LSUIElement: true
+        NSAppleMusicUsageDescription: >-
+          avctl plays Apple Music catalog selections on this Mac without
+          adding them to your library.
+    entitlements:
+      path: AvctlMusicBridge/AvctlMusicBridge.entitlements
+
+  avctlUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: avctlUITests
+    dependencies:
+      - target: avctl
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(AVCTL_APP_BUNDLE_ID).uitests
+        GENERATE_INFOPLIST_FILE: YES

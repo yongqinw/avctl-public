@@ -1,0 +1,48 @@
+# Python 3.11+ required -- aiowebostv needs it, and macOS's system python3 is
+# 3.9. Do not build against /usr/bin/python3.
+#
+#   brew install python@3.12
+#   python3.12 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+
+aiowebostv>=0.4         # LG OLED77G6 -- webOS SSAP over websocket
+broadlink>=0.18         # Broadlink RM4 -- IR blaster driving the Topping D900
+pyserial>=3.5           # McIntosh MAC7200 -- RS-232 at 115200 8N1
+requests>=2.31          # Panasonic DP-UB820 -- HTTP control CGI
+PyYAML>=6.0             # config/*.yaml
+wakeonlan>=3.0          # LG TV power-on; its socket is dead while off
+
+# Web control app
+fastapi>=0.110
+uvicorn[standard]>=0.29
+zeroconf==0.151.1       # Bonjour discovery for first-launch Core pairing
+
+# Apple Music catalog search / add-to-library (phase 2 of the music panel).
+# Only imported once applemusic.team_id/key_id are set in config.yaml --
+# phase 1 (local Music.app control) runs without them installed.
+PyJWT>=2.8              # the ES256 developer token MusicKit requires
+cryptography>=42        # PyJWT's ES256 backend
+
+# Live Activity pushes to the phone app (docs/phone-app.md stage 4). APNs
+# speaks HTTP/2 only, which requests cannot; like the MusicKit pair above,
+# nothing imports this until phone: is configured in config.yaml.
+httpx[http2]>=0.27
+
+# Traditional/simplified Chinese conversion for library search: the library
+# is tagged 周杰倫, phone keyboards type 周杰伦, and substring matching knows
+# nothing of the difference. Guarded import -- search works without it, just
+# script-blind.
+opencc-python-reimplemented>=0.1.7
+
+# Roon Server discovery, extension authorization, zones, browse and transport.
+# Pinned while the 6.0 capability trial is in progress: it is third-party and
+# its public behavior is being measured before live drivers are enabled.
+roonapi==0.1.6
+
+# Local speech recognition for Ask.  The marker keeps Linux CI and non-Apple
+# development machines installable; production is the Apple-silicon mini.
+# Keep MLX on the newest CPython 3.13 wheel whose deployment target is macOS
+# 14. Newer wheels currently require macOS 15 or 26 even though the Core
+# installer itself supports macOS 14.
+mlx==0.23.2; sys_platform == "darwin" and platform_machine == "arm64"
+mlx-whisper==0.4.3; sys_platform == "darwin" and platform_machine == "arm64"

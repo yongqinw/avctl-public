@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Replace __AVCTL_ROOT__, __AVCTL_USER__, and __AVCTL_HOME__ in a private
+     deployment artifact. Never run this template without rendering it. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.avctl.api</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__AVCTL_ROOT__/venv/bin/python</string>
+    <string>-m</string>
+    <string>api</string>
+  </array>
+  <key>WorkingDirectory</key><string>__AVCTL_ROOT__</string>
+  <key>UserName</key><string>__AVCTL_USER__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>__AVCTL_HOME__</string>
+    <key>AVCTL_BIND</key><string>127.0.0.1</string>
+    <key>AVCTL_PORT</key><string>8000</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>__AVCTL_HOME__/Library/Logs/avctl-api.log</string>
+  <key>StandardErrorPath</key><string>__AVCTL_HOME__/Library/Logs/avctl-api.log</string>
+</dict>
+</plist>

@@ -1,0 +1,37 @@
+# Optional Roon backend overlay. Copy the relevant blocks into the owner file
+# at ~/Library/Application Support/avctl/config.yaml after authorizing the
+# extension in Roon.
+
+roon:
+  # mock exercises the full Music/Ask surface and rack drivers without
+  # physical Roon Ready gear. Change to live after scripts/roon_probe.py saves
+  # a token and the desired zone/output ids have been selected.
+  mode: mock
+  zone_id: living-room
+  output_id: roon-ready
+
+  # After scripts/roon_probe.py succeeds, a live configuration can use:
+  # mode: live
+  # token_file: ~/.avctl/roon-token
+  # core_id: <discovered stable Core id>
+  # output_id: <selected stable output id>
+  # max_volume: 80
+  # reconnect_after_seconds: 3  # rebuild a client if pyRoon stays offline
+  # host/port are optional; discovery is preferred so DHCP changes survive.
+
+music:
+  driver: RoonMusic
+  RoonMusic:
+    zone_id: living-room
+    output_id: roon-ready
+
+dac:
+  driver: RoonDac
+  RoonDac:
+    output_id: roon-ready
+
+amp:
+  driver: RoonAmp
+  max_volume: 70
+  RoonAmp:
+    output_id: roon-ready

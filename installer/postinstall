@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+APP="/Applications/Avctl Server.app"
+USER_NAME="$(/usr/bin/stat -f '%Su' /dev/console)"
+if [ -z "$USER_NAME" ] || [ "$USER_NAME" = root ] || [ "$USER_NAME" = loginwindow ]; then
+  echo "avctl needs a logged-in Mac user" >&2
+  exit 1
+fi
+
+exec "$APP/Contents/Resources/runtime/avctl-core" install-service \
+  --app "$APP" --user "$USER_NAME"

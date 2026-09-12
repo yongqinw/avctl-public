@@ -1,0 +1,5 @@
+# Test-only dependencies -- the service itself never imports these.
+-r requirements.txt
+
+pytest>=8.0             # the suite in tests/
+httpx>=0.27             # fastapi.testclient's transport

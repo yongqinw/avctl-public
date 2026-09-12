@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # aiowebostv needs 3.11+; macOS system python is 3.9
+      # Screenshots and icons require a separate visual privacy review.
+      - name: Check public snapshot privacy
+        run: python scripts/check_public_snapshot.py --ref HEAD --allow-binary
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
