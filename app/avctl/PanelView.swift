@@ -21,6 +21,8 @@ struct PanelView: UIViewRepresentable {
     /// one place that provably runs when the bounds become real.
     final class PanelWebView: WKWebView {
         var onFirstRealLayout: ((PanelWebView) -> Void)?
+        var onRetryConnection: (() -> Void)?
+        var onChangeCore: (() -> Void)?
         private var connectionOverlay: UIView?
 
         override func layoutSubviews() {
@@ -51,7 +53,30 @@ struct PanelView: UIViewRepresentable {
             detail.textColor = .secondaryLabel
             detail.textAlignment = .center
             detail.numberOfLines = 0
-            let stack = UIStackView(arrangedSubviews: [spinner, title, detail])
+            let retry = UIButton(type: .system)
+            retry.setTitle("Try Again", for: .normal)
+            retry.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+            retry.accessibilityIdentifier = "retry-core-connection"
+            retry.addAction(UIAction { [weak self] _ in
+                self?.onRetryConnection?()
+            }, for: .touchUpInside)
+
+            let change = UIButton(type: .system)
+            change.setTitle("Change Core", for: .normal)
+            change.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+            change.accessibilityIdentifier = "change-core"
+            change.addAction(UIAction { [weak self] _ in
+                self?.onChangeCore?()
+            }, for: .touchUpInside)
+
+            let actions = UIStackView(arrangedSubviews: [retry, change])
+            actions.axis = .horizontal
+            actions.alignment = .center
+            actions.distribution = .fillEqually
+            actions.spacing = 12
+
+            let stack = UIStackView(arrangedSubviews: [spinner, title, detail,
+                                                        actions])
             stack.axis = .vertical
             stack.alignment = .center
             stack.spacing = 12
@@ -69,6 +94,10 @@ struct PanelView: UIViewRepresentable {
                                                 constant: -32),
                 stack.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
                 stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+                actions.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
+                actions.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
+                retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+                change.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
             ])
             connectionOverlay = overlay
         }
@@ -101,6 +130,12 @@ struct PanelView: UIViewRepresentable {
         // view hands ITSELF to the callback.
         view.onFirstRealLayout = { [coordinator = context.coordinator] webView in
             PanelView.loadIfNeeded(webView, coordinator)
+        }
+        view.onRetryConnection = { [coordinator = context.coordinator] in
+            coordinator.retryConnection()
+        }
+        view.onChangeCore = { [coordinator = context.coordinator] in
+            coordinator.changeCore()
         }
         return view
     }
@@ -279,6 +314,28 @@ struct PanelView: UIViewRepresentable {
                 PanelView.retryLoad(webView, self)
                 self.retryDelay = min(max(delay, 1) * 2, 30)
             }
+        }
+
+        func retryConnection() {
+            guard let webView else { return }
+            retryTask?.cancel()
+            retryTask = nil
+            navigationWatchdog?.cancel()
+            navigationWatchdog = nil
+            webView.stopLoading()
+            loadNeedsRetry = true
+            retryDelay = 1
+            PanelView.retryLoad(webView, self)
+        }
+
+        /// Recovery must remain native: when the saved Core address is wrong,
+        /// none of the server-hosted Settings UI exists to repair it.
+        func changeCore() {
+            stopRetrying()
+            webView?.stopLoading()
+            ServerConfig.isPaired = false
+            NotificationCenter.default.post(
+                name: .avctlConnectionChanged, object: nil)
         }
 
         private func sendVoiceEvent(_ event: [String: Any]) {

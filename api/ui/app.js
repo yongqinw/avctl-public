@@ -3843,6 +3843,8 @@ let mqRevision = -1;
 let mqRequest = 0;
 let mqCloseTimer = 0;
 let mqClearArm = 0;
+const MQ_PAGE_SIZE = 60;
+let mqItems = [];
 
 function queueTrackRow(item, playing) {
   const row = document.createElement('div');
@@ -3863,9 +3865,36 @@ function queueTrackRow(item, playing) {
   return row;
 }
 
+function activeQueueList() {
+  return activeMusicLayout === 'split-deck'
+    ? $('.mq-split .js-mq-list')
+    : $('#m-queue .js-mq-list');
+}
+
+function appendQueuePage(list) {
+  if (!list) return;
+  list.querySelector('.js-mq-more')?.remove();
+  const start = Number(list.dataset.rendered || 0);
+  const end = Math.min(start + MQ_PAGE_SIZE, mqItems.length);
+  if (end > start) {
+    list.append(...mqItems.slice(start, end)
+      .map((item) => queueTrackRow(item, false)));
+  }
+  list.dataset.rendered = String(end);
+  if (end >= mqItems.length) return;
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'mq-more js-mq-more';
+  const next = Math.min(MQ_PAGE_SIZE, mqItems.length - end);
+  more.textContent = 'Show ' + next + ' more · ' +
+    (mqItems.length - end).toLocaleString() + ' remaining';
+  list.append(more);
+}
+
 function paintQueue(data) {
   mqRevision = Number(data.revision ?? mqRevision);
   const items = data.items || [];
+  mqItems = items;
   let playing = data.playing || null;
   const fields = snapshot?.devices?.music?.fields;
   if (playing && (fields?.pid || fields?.catalog_id)
@@ -3882,15 +3911,28 @@ function paintQueue(data) {
   $$('.js-mq-playing').forEach((el) => {
     el.replaceChildren(...(playing ? [queueTrackRow(playing, true)] : []));
   });
-  $$('.js-mq-list').forEach((el) => {
-    el.replaceChildren(...items.map((item) => queueTrackRow(item, false)));
-  });
+  // A curated Ask request can legitimately build hundreds of tracks. Creating
+  // every row -- and eagerly requesting every cover -- in one frame freezes
+  // mobile WebKit and makes the queue look as if it never opened. Render only
+  // the active queue surface and page the rest in bounded chunks.
+  const list = activeQueueList();
+  if (list) {
+    list.replaceChildren();
+    list.dataset.rendered = '0';
+    appendQueuePage(list);
+  }
   $$('.js-mq-count').forEach((el) => { el.textContent = String(items.length); });
   $$('.js-mq-empty').forEach((el) => { el.hidden = items.length > 0; });
   $$('.js-mq-clear').forEach((el) => {
     el.hidden = !playing && items.length === 0;
   });
 }
+
+document.addEventListener('click', (event) => {
+  const more = event.target.closest('.js-mq-more');
+  if (!more) return;
+  appendQueuePage(more.closest('.js-mq-list'));
+});
 
 async function loadQueue(force) {
   if (!force && !railStack.classList.contains('queue-open') &&

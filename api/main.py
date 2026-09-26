@@ -1079,12 +1079,13 @@ def api_agent_reset(
 
 # --- the app's own updates (OTA, App-Store-style without the App Store) ---
 #
-# Publish a signed .ipa and its manifest into settings.APP_DIST.
-# iOS installs from an
-# itms-services link, which requires HTTPS with a certificate it trusts --
-# tailscale serve provides exactly that. The whole flow rides the tailnet, so
-# it works precisely when the VPN is up: the situation where the devicectl
-# push path cannot reach the phone.
+# The deployer publishes a signed .ipa and its manifest into settings.APP_DIST
+# (see personal-project-deployment/avctl-app). iOS installs from an
+# itms-services link, which requires HTTPS with a certificate it trusts.
+# These three allowlisted files are deliberately public when exposed through
+# Funnel: iOS' OTA downloader cannot attach an avctl cookie or bearer token.
+# The IPA remains usable only on devices included in its signed profile; all
+# Core pages and APIs keep their normal authentication.
 
 _APP_ARTIFACTS = {
     "manifest.plist": "text/xml",
@@ -1093,7 +1094,7 @@ _APP_ARTIFACTS = {
 
 
 @app.get("/app", response_class=HTMLResponse)
-def app_install(request: Request, identity: Identity = Depends(require)) -> HTMLResponse:
+def app_install(request: Request) -> HTMLResponse:
     """One button: install (or update to) whatever build is published.
 
     Whatever the deployer last published -- newest or a rollback -- is what
@@ -1121,7 +1122,7 @@ def app_install(request: Request, identity: Identity = Depends(require)) -> HTML
 
 
 @app.api_route("/app/{name}", methods=["GET", "HEAD"])
-def app_artifact(name: str, identity: Identity = Depends(require)) -> FileResponse:
+def app_artifact(name: str) -> FileResponse:
     media = _APP_ARTIFACTS.get(name)
     if media is None:
         raise HTTPException(status_code=404, detail="no such artifact")

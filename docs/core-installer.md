@@ -12,7 +12,7 @@ release builder freezes Python and the declared dependencies with PyInstaller.
 ## Friend installation
 
 1. Download `Avctl-Server-<version>.pkg` and follow its release guide before
-   opening it. Release 6.2 is unsigned and not notarized.
+   opening it. Release 6.4 is unsigned and not notarized.
 2. The package installs `/Applications/Avctl Server.app`, creates a per-user
    LaunchAgent for Core, starts it, waits for `/healthz`, and opens Setup on
    the configured local Core port (8000 on a fresh installation). The optional
@@ -55,7 +55,7 @@ Create a Python 3.12 virtual environment, install `requirements.txt` and
 
 ```bash
 AVCTL_BUILD_PYTHON=.installer-venv/bin/python \
-AVCTL_VERSION=6.2 \
+AVCTL_VERSION=6.4 \
 AVCTL_APPLICATION_SIGN_IDENTITY="Developer ID Application: …" \
 AVCTL_INSTALLER_SIGN_IDENTITY="Developer ID Installer: …" \
 ./installer/build-pkg.sh
@@ -90,7 +90,7 @@ uses `AVCTL_TEST_TOKEN` or `~/.avctl/token` internally and never prints it.
 
 With no identities, the script makes a local ad-hoc/unsigned package for
 testing. Developer ID signing, Apple notarization, stapling, and a generated
-SHA-256 file are the intended distribution path. The published 6.2 package
+SHA-256 file are the intended distribution path. The published 6.4 package
 is unsigned and not notarized; its setup guide documents that caveat.
 
 PyInstaller explicitly collects every API/device driver because the registry

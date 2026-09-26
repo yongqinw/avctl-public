@@ -1092,6 +1092,12 @@ details.more[open]>summary{color:var(--ink)}
   font-variant-numeric:tabular-nums;
 }
 .mq-empty{padding:42px 14px;color:var(--faint);text-align:center}
+.mq-more{
+  display:block;width:100%;min-height:44px;padding:10px 12px;margin-top:6px;
+  border:0;border-radius:11px;background:var(--fill);color:var(--acc);
+  font:650 12px/1.2 -apple-system,sans-serif;
+}
+.mq-more:active{opacity:.58}
 .mq-clear{
   flex:none;display:block;width:min(720px,100%);min-height:44px;
   margin:8px auto 0;padding:10px 12px;border:0;border-radius:12px;

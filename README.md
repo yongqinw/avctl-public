@@ -5,16 +5,16 @@ on a Mac connects Apple Music or Roon playback with optional amplifier, DAC,
 TV, and Mac controls. Browsers and the native iPhone/iPad app share the same
 web interface and Core state.
 
-## Download 6.2
+## Download 6.4
 
-- [Mac installer: Avctl-Server-6.2.pkg](https://github.com/yongqinw/avctl-public/releases/download/6.2/Avctl-Server-6.2.pkg)
-- [SHA-256 checksum](https://github.com/yongqinw/avctl-public/releases/download/6.2/Avctl-Server-6.2.pkg.sha256)
-- [Release notes and all assets](https://github.com/yongqinw/avctl-public/releases/tag/6.2)
+- [Mac installer: Avctl-Server-6.4.pkg](https://github.com/yongqinw/avctl-public/releases/download/6.4/Avctl-Server-6.4.pkg)
+- [SHA-256 checksum](https://github.com/yongqinw/avctl-public/releases/download/6.4/Avctl-Server-6.4.pkg.sha256)
+- [Release notes and all assets](https://github.com/yongqinw/avctl-public/releases/tag/6.4)
 - [Illustrated setup guide](docs/friend-setup.md)
-- [Setup guide PDF](https://github.com/yongqinw/avctl-public/releases/download/6.2/Avctl-6.2-Setup-Guide.pdf)
-- [Standalone HTML guide](https://github.com/yongqinw/avctl-public/releases/download/6.2/Avctl-6.2-Setup-Guide.html)
+- [Setup guide PDF](https://github.com/yongqinw/avctl-public/releases/download/6.4/Avctl-6.4-Setup-Guide.pdf)
+- [Standalone HTML guide](https://github.com/yongqinw/avctl-public/releases/download/6.4/Avctl-6.4-Setup-Guide.html)
 
-Version 6.2 is unsigned and not notarized. Read the installation steps in the
+Version 6.4 is unsigned and not notarized. Read the installation steps in the
 guide before opening the package.
 
 The packaged Core requires an Apple-silicon Mac running macOS 14 or newer, a

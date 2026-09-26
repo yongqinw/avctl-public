@@ -275,6 +275,49 @@ def test_next_materializes_the_logical_tail_before_advancing(monkeypatch):
     assert musiclink._QUEUE.materialized == 2
 
 
+def test_next_recovers_when_player_ignores_track_appended_while_playing(
+        monkeypatch):
+    class SealedUpNextMusic(FakeMusic):
+        """Music.app playlist grows, but its running Up Next does not."""
+
+        def __init__(self):
+            super().__init__()
+            self.up_next_length = 0
+
+        def play_tracks(self, pids, start=0):
+            super().play_tracks(pids, start)
+            self.up_next_length = len(self.playlist)
+
+        def next_track(self):
+            if self.playing not in self.playlist:
+                return
+            at = self.playlist.index(self.playing)
+            if at + 1 < self.up_next_length:
+                self.playing = self.playlist[at + 1]
+
+    fake = SealedUpNextMusic()
+    monkeypatch.setattr(musiclink, "_MUSIC", fake)
+    monkeypatch.setattr(musiclink, "_start_pump_locked", lambda _revision: None)
+    monkeypatch.setattr(musiclink.time, "sleep", lambda _seconds: None)
+
+    musiclink._dispatch([{"pid": PIDS[0], "name": "already playing"}],
+                        replace=True, play=True)
+    musiclink._QUEUE.observe(fake.now_playing())
+    musiclink._dispatch([{"pid": PIDS[1], "name": "added while playing"}],
+                        replace=False, play=False)
+
+    assert fake.playlist == PIDS[:2]
+    assert fake.playing == PIDS[0]
+    assert musiclink._QUEUE.materialized == 2
+
+    result = musiclink.next_track({})
+
+    assert result == {"message": "playing next track"}
+    assert fake.playing == PIDS[1]
+    assert fake.playlist == [PIDS[1]]
+    assert [item["pid"] for item in musiclink._QUEUE.items] == [PIDS[1]]
+
+
 def test_next_advances_the_catalog_player(monkeypatch):
     fake = FakeMusic()
     fake.catalog_playlist = ["catalog.1", "catalog.2"]
@@ -588,3 +631,17 @@ def test_all_selected_music_layout_surfaces_ship_without_parallel_state():
     assert "data-scope='catalog'>Apple Music" in html
     assert html.index("id='m-scope'") < html.index("id='m-search'")
     assert "Console" not in html
+
+
+def test_long_queue_view_pages_rows_instead_of_freezing_mobile_webkit():
+    root = Path(__file__).parents[1]
+    script = (root / "api/ui/app.js").read_text()
+    style = (root / "api/ui/app.css").read_text()
+
+    assert "const MQ_PAGE_SIZE = 60" in script
+    assert "mqItems.slice(start, end)" in script
+    assert "items.map((item) => queueTrackRow(item, false))" not in script
+    assert "activeQueueList()" in script
+    assert "js-mq-more" in script
+    assert ".mq-more{" in style
+    assert "min-height:44px" in style

@@ -1225,7 +1225,8 @@ def next_track(args: dict[str, Any]) -> dict[str, Any]:
     # Always reconcile once. This matters especially for the catalog helper:
     # its queue has a different transport from Music.app, and a freshly
     # started queue may not have met the state poller yet.
-    stranded = _QUEUE.observe(music.now_playing())
+    before = music.now_playing()
+    stranded = _QUEUE.observe(before)
     if stranded:
         # The active physical player already stopped (including a helper that
         # lost its queue). In that state there is nothing useful to skip;
@@ -1234,6 +1235,9 @@ def next_track(args: dict[str, Any]) -> dict[str, Any]:
         return {"message": "playing next track"}
 
     handoff: list[dict[str, Any]] | None = None
+    verify_tail: list[dict[str, Any]] | None = None
+    verify_revision: int | None = None
+    before_identity = _QUEUE.playback_identity(before)
     with _QUEUE.lock:
         current = _QUEUE.current
         target = current + 1
@@ -1247,6 +1251,15 @@ def next_track(args: dict[str, Any]) -> dict[str, Any]:
                 handoff = [dict(item) for item in _QUEUE.items[target:]]
             elif target >= _QUEUE.materialized:
                 _materialize_locked(_QUEUE, max(1, _lead()))
+            # Music.app can report a successful append while its running Up
+            # Next snapshot remains sealed at the old last track. In that
+            # state `next track` is a silent no-op even though `materialized`
+            # truthfully says the playlist row exists. Keep a revision-bound
+            # recovery tail and verify the transport actually advanced.
+            target_identity = _queue_identity(_QUEUE.items[target])
+            if target_identity != before_identity:
+                verify_tail = [dict(item) for item in _QUEUE.items[target:]]
+                verify_revision = _QUEUE.revision
 
     if handoff:
         _dispatch(handoff, replace=True, play=True)
@@ -1256,6 +1269,29 @@ def next_track(args: dict[str, Any]) -> dict[str, Any]:
     # active: Music.app for library tracks or the MusicKit helper for catalog
     # tracks.
     music.next_track()
+    if verify_tail and before_identity:
+        # AppleScript is synchronous in the normal case, while Roon and the
+        # MusicKit bridge can publish their new state a beat later. Two short
+        # readbacks avoid mistaking propagation lag for a failed Next without
+        # making the successful path slower.
+        after = music.now_playing()
+        for delay in (0.08, 0.18):
+            after_identity = _QUEUE.playback_identity(after)
+            if after_identity and after_identity != before_identity:
+                _QUEUE.observe(after)
+                return {}
+            if after.get("state") == "stopped":
+                break
+            time.sleep(delay)
+            after = music.now_playing()
+        after_identity = _QUEUE.playback_identity(after)
+        if not after_identity or after_identity == before_identity:
+            recovered = _dispatch(
+                verify_tail, replace=True, play=True,
+                expected_revision=verify_revision,
+            )
+            if recovered:
+                return {"message": "playing next track"}
     return {}
 
 

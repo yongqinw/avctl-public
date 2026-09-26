@@ -122,11 +122,18 @@ chmod 755 "$WORK/scripts/postinstall"
 COMPONENT="$WORK/avctl-component.pkg"
 pkgbuild --root "$WORK/payload" --scripts "$WORK/scripts" \
   --identifier org.avctl.server.pkg --version "$VERSION" "$COMPONENT"
-PACKAGE="$OUTPUT/Avctl-Server-$VERSION.pkg"
+PACKAGE_NAME="Avctl-Server-$VERSION.pkg"
+PACKAGE="$OUTPUT/$PACKAGE_NAME"
 if [ -n "$PKG_SIGN" ]; then
   productsign --sign "$PKG_SIGN" "$COMPONENT" "$PACKAGE"
 else
   cp "$COMPONENT" "$PACKAGE"
 fi
-shasum -a 256 "$PACKAGE" > "$PACKAGE.sha256"
+# Keep the checksum portable after GitHub downloads both assets into a
+# different directory. Hashing the absolute build path makes `shasum -c`
+# look for a path that only existed on the release runner.
+(
+  cd "$OUTPUT"
+  shasum -a 256 "$PACKAGE_NAME" > "$PACKAGE_NAME.sha256"
+)
 echo "$PACKAGE"

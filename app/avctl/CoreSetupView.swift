@@ -12,6 +12,19 @@ struct CoreSetupView: View {
     @State private var message = "Discover a nearby Core or enter its Tailscale address."
     @State private var failed = false
 
+    init(discovery: CoreDiscovery,
+         colorScheme: ServerConfig.PanelColorScheme,
+         onPaired: @escaping () -> Void) {
+        self.discovery = discovery
+        self.colorScheme = colorScheme
+        self.onPaired = onPaired
+        // A fresh install starts empty. Recovery from an unreachable or
+        // mistyped Core starts with the saved values so one character can be
+        // corrected without destroying the last known configuration first.
+        _address = State(initialValue: ServerConfig.server)
+        _token = State(initialValue: ServerConfig.token)
+    }
+
     var body: some View {
         GeometryReader { geometry in
             Group {

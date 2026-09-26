@@ -444,4 +444,6 @@ def test_installer_build_contract_is_self_contained_and_loopback_only():
     assert 'scipy/_external' in build
     assert '--exclude-module mlx_whisper.torch_whisper' in build
     assert 'CLANG_MODULE_CACHE_PATH' in build
+    assert 'shasum -a 256 "$PACKAGE_NAME"' in build
+    assert 'shasum -a 256 "$PACKAGE"' not in build
     assert 'mlx==0.23.2; sys_platform == "darwin"' in requirements

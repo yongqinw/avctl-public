@@ -1,4 +1,4 @@
-# avctl 6.2: setup guide for friends
+# avctl 6.4: setup guide for friends
 
 Follow this guide from top to bottom: install Core, complete the six setup
 screens in order, then connect your phone. Each optional component explains
@@ -12,10 +12,10 @@ how to skip it when you reach that screen.
 - Keep the Core Mac awake and its user logged in while using avctl. A MacBook
   works too; closing its lid or putting it to sleep can disconnect the remote.
 
-1. Open [release 6.2](https://github.com/yongqinw/avctl-public/releases/tag/6.2).
-   Under **Assets**, download and open `Avctl-Server-6.2.pkg`.
+1. Open [release 6.4](https://github.com/yongqinw/avctl-public/releases/tag/6.4).
+   Under **Assets**, download and open `Avctl-Server-6.4.pkg`.
    If the release cannot be reached, ask the app publisher for the installer file.
-2. Version 6.2's installer is unsigned and not notarized. If macOS blocks it
+2. Version 6.4's installer is unsigned and not notarized. If macOS blocks it
    because the developer cannot be verified, and you trust the copy supplied
    by the app publisher, open **System Settings → Privacy & Security → Open Anyway**
    after trying to open it. Follow the confirmation prompts.
@@ -40,7 +40,7 @@ The browser now shows these six screens:
 ![Check panel showing installed Core components and the Continue button](images/friend-setup/01-check.png)
 
 *Figure 1. Check this Mac, then Continue. The figures in this guide show the
-6.2 setup panels with example device names, status, and addresses. Use your
+6.4 setup panels with example device names, status, and addresses. Use your
 own device values; credential fields are left empty.*
 
 Read the component list. **Ready** means the component is present; it does
@@ -192,7 +192,7 @@ avctl send your requests to the AI service.
 *Figure 6. The Fireworks key goes in Provider API credential. Voice choices
 are directly below it on the same Devices screen.*
 
-1. In avctl select **Fireworks Priority**. Version 6.2 uses **DeepSeek v4.1
+1. In avctl select **Fireworks Priority**. Version 6.4 uses **DeepSeek v4.1
    Flash**, model `accounts/fireworks/models/deepseek-v4p1-flash`.
 2. Open the [Fireworks dashboard](https://app.fireworks.ai/) in another tab
    and create an account if you do not have one. Complete its sign-in/onboarding
